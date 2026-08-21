@@ -38,9 +38,10 @@ public:
   /**
    * \brief  Decrypt the 'src' bytes using AES128 cipher, using 'shared_secret' as key, with key length fixed at CIPHER_KEY_SIZE.
    *         'src_len' should be multiple of block size, as returned by 'encrypt()'.
+   *         'dest_cap' is the size of the 'dest' buffer; decryption stops before writing past it.
    * \returns  The length in bytes put into 'dest'. (dest may contain trailing zero bytes in final block)
   */
-  static int decrypt(const uint8_t* shared_secret, uint8_t* dest, const uint8_t* src, int src_len);
+  static int decrypt(const uint8_t* shared_secret, uint8_t* dest, const uint8_t* src, int src_len, int dest_cap);
 
   /**
    * \brief  encrypts bytes in src, then calculates MAC on ciphertext, inserting into leading bytes of 'dest'.
@@ -50,9 +51,10 @@ public:
 
   /**
    * \brief  checks the MAC (in leading bytes of 'src'), then if valid, decrypts remaining bytes in src.
+   *         'dest_cap' is the size of the 'dest' buffer.
    * \returns  zero if MAC is invalid, otherwise the length of decrypted bytes in 'dest'
   */
-  static int MACThenDecrypt(const uint8_t* shared_secret, uint8_t* dest, const uint8_t* src, int src_len);
+  static int MACThenDecrypt(const uint8_t* shared_secret, uint8_t* dest, const uint8_t* src, int src_len, int dest_cap);
 
   /**
    * \brief  converts 'src' bytes with given length to Hex representation, and null terminates.

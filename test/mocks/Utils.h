@@ -31,11 +31,12 @@ public:
     return out_len;
   }
 
-  static int MACThenDecrypt(const uint8_t*, uint8_t* dest, const uint8_t* src, int src_len) {
+  static int MACThenDecrypt(const uint8_t*, uint8_t* dest, const uint8_t* src, int src_len, int dest_cap) {
     if (src_len < CIPHER_MAC_SIZE) {
       return 0;
     }
     int out_len = src_len - CIPHER_MAC_SIZE;
+    if (out_len > dest_cap) out_len = dest_cap;
     std::memcpy(dest, src + CIPHER_MAC_SIZE, out_len);
     return out_len;
   }

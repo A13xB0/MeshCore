@@ -50,7 +50,7 @@ void Utils::sha256(uint8_t *hash, size_t hash_len, const uint8_t* frag1, int fra
 #endif
 }
 
-int Utils::decrypt(const uint8_t* shared_secret, uint8_t* dest, const uint8_t* src, int src_len) {
+int Utils::decrypt(const uint8_t* shared_secret, uint8_t* dest, const uint8_t* src, int src_len, int dest_cap) {
 #ifdef USE_CC310_HW_CRYPTO
   static SaSiAesUserContext_t ctx;
   SaSiAesUserKeyData_t keyData = { (uint8_t*)shared_secret, CIPHER_KEY_SIZE };
@@ -61,12 +61,13 @@ int Utils::decrypt(const uint8_t* shared_secret, uint8_t* dest, const uint8_t* s
   SaSi_AesInit(&ctx, SASI_AES_DECRYPT, SASI_AES_MODE_ECB, SASI_AES_PADDING_NONE);
   SaSi_AesSetKey(&ctx, SASI_AES_USER_KEY, &keyData, sizeof(keyData));
   while (sp - src < src_len) {
+    if (dp - dest + CIPHER_BLOCK_SIZE > dest_cap) break;  // never overshoot the caller's buffer
     SaSi_AesBlock(&ctx, (uint8_t*)sp, 16, dp);
     dp += 16; sp += 16;
   }
   SaSi_AesFinish(&ctx, 0, NULL, 0, NULL, &dummy_out);
   SaSi_AesFree(&ctx);
-  return sp - src;
+  return dp - dest;
 #else
   AES128 aes;
   uint8_t* dp = dest;
@@ -74,11 +75,12 @@ int Utils::decrypt(const uint8_t* shared_secret, uint8_t* dest, const uint8_t* s
 
   aes.setKey(shared_secret, CIPHER_KEY_SIZE);
   while (sp - src < src_len) {
+    if (dp - dest + CIPHER_BLOCK_SIZE > dest_cap) break;  // never overshoot the caller's buffer
     aes.decryptBlock(dp, sp);
     dp += 16; sp += 16;
   }
 
-  return sp - src;  // will always be multiple of 16
+  return dp - dest;  // will always be multiple of 16
 #endif
 }
 
@@ -144,7 +146,7 @@ int Utils::encryptThenMAC(const uint8_t* shared_secret, uint8_t* dest, const uin
   return CIPHER_MAC_SIZE + enc_len;
 }
 
-int Utils::MACThenDecrypt(const uint8_t* shared_secret, uint8_t* dest, const uint8_t* src, int src_len) {
+int Utils::MACThenDecrypt(const uint8_t* shared_secret, uint8_t* dest, const uint8_t* src, int src_len, int dest_cap) {
   if (src_len <= CIPHER_MAC_SIZE) return 0;  // invalid src bytes
 
   uint8_t hmac[CIPHER_MAC_SIZE];
@@ -166,7 +168,7 @@ int Utils::MACThenDecrypt(const uint8_t* shared_secret, uint8_t* dest, const uin
   }
 #endif
   if (memcmp(hmac, src, CIPHER_MAC_SIZE) == 0) {
-    return decrypt(shared_secret, dest, src + CIPHER_MAC_SIZE, src_len - CIPHER_MAC_SIZE);
+    return decrypt(shared_secret, dest, src + CIPHER_MAC_SIZE, src_len - CIPHER_MAC_SIZE, dest_cap);
   }
   return 0; // invalid HMAC
 }

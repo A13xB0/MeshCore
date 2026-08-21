@@ -540,7 +540,7 @@ void KissModem::handleDecryptData(const uint8_t* data, uint16_t len) {
   uint16_t ciphertext_len = len - PUB_KEY_SIZE;
 
   uint8_t buf[KISS_MAX_FRAME_SIZE];
-  int decrypted_len = mesh::Utils::MACThenDecrypt(key, buf, ciphertext, ciphertext_len);
+  int decrypted_len = mesh::Utils::MACThenDecrypt(key, buf, ciphertext, ciphertext_len, sizeof(buf));
 
   if (decrypted_len > 0) {
     writeHardwareFrame(HW_RESP(HW_CMD_DECRYPT_DATA), buf, decrypted_len);
