@@ -39,8 +39,8 @@ static bool parseChannelHash(const char* arg, uint8_t& hash) {
 }
 
 // lists the most-heard hashes, busiest first: "A5 12, 11 3, ..."
-static int formatTopHeard(const uint8_t counts[256], char* dest, int dest_len) {
-  bool done[256];
+static int formatTopHeard(const uint8_t* counts, char* dest, int dest_len) {
+  uint8_t done[256];
   memset(done, 0, sizeof(done));
   *dest = 0;
   if (dest_len < 11) return 0;
@@ -53,9 +53,9 @@ static int formatTopHeard(const uint8_t counts[256], char* dest, int dest_len) {
       if (best < 0 || counts[i] > counts[best]) best = i;
     }
     if (best < 0) break;
-    done[best] = true;
+    done[best] = 1;
 
-    len += snprintf(&dest[len], dest_len - len, "%s%02X %u", n == 0 ? "" : ", ", best, counts[best]);
+    len += snprintf(&dest[len], dest_len - len, "%s%02X %u", n ? ", " : "", best, counts[best]);
     n++;
     if (len + 10 >= dest_len) break;
   }
@@ -66,11 +66,12 @@ bool MeshOSLite::removeEntry(const uint8_t* id, uint8_t len) {
   int i = findEntry(id, len);
   if (i < 0) return false;
 
-  for ( ; i + 1 < lite.entry_n; i++) {
-    lite.entries[i] = lite.entries[i + 1];
-    entry_hits[i] = entry_hits[i + 1];
+  uint8_t n = lite.entry_n;
+  for (uint8_t j = i; j + 1 < n; j++) {
+    lite.entries[j] = lite.entries[j + 1];
+    entry_hits[j] = entry_hits[j + 1];
   }
-  lite.entry_n--;
+  lite.entry_n = n - 1;
   memset(&lite.entries[lite.entry_n], 0, sizeof(LiteEntry));
   entry_hits[lite.entry_n] = 0;
   saveLite();
