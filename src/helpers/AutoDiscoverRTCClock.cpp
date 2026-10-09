@@ -20,6 +20,28 @@ static bool rtc_8130_success = false;
 #define PCF8563_ADDRESS  0x51
 #define RX8130CE_ADDRESS 0x32
 
+#define RTC_MIN_VALID_TIME   1715770351   // 15 May 2024, 8:50pm (same as VolatileRTCClock)
+#define RTC_MAX_AGE_SECS     (20UL * 365 * 86400)
+
+// the firmware build date (__DATE__, e.g. "Oct  6 2026") as unix time
+static uint32_t buildDateEpoch() {
+  static const char months[] = "JanFebMarAprMayJunJulAugSepOctNovDec";
+  char mon[4] = { __DATE__[0], __DATE__[1], __DATE__[2], 0 };
+  const char* p = strstr(months, mon);
+  int m = p ? (p - months) / 3 + 1 : 1;
+  int d = atoi(&__DATE__[4]);
+  int y = atoi(&__DATE__[7]);
+  if (d < 1 || d > 31) d = 1;
+
+  // days from civil (Howard Hinnant)
+  y -= m <= 2;
+  int era = (y >= 0 ? y : y - 399) / 400;
+  unsigned yoe = (unsigned)(y - era * 400);
+  unsigned doy = (153 * (m + (m > 2 ? -3 : 9)) + 2) / 5 + d - 1;
+  unsigned doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+  return (uint32_t)(era * 146097 + (int)doe - 719468) * 86400;
+}
+
 bool AutoDiscoverRTCClock::i2c_probe(TwoWire& wire, uint8_t addr) {
   wire.beginTransmission(addr);
   uint8_t error = wire.endTransmission();
@@ -51,6 +73,14 @@ void AutoDiscoverRTCClock::begin(TwoWire& wire) {
     rtc_8130.begin(&wire);
     rtc_8130_success = true;
     MESH_DEBUG_PRINTLN("RX8130CE: Initialized");
+  }
+
+  // an RTC with a flat backup cell can come up with garbage: anything before 2024 or more than
+  // 20 years past the build date gets reset to the default epoch
+  if (ds3231_success || rv3028_success || rtc_8563_success || rtc_8130_success) {
+    uint32_t now = getCurrentTime();
+    if (now >= RTC_MIN_VALID_TIME && now <= buildDateEpoch() + RTC_MAX_AGE_SECS) return;
+    setCurrentTime(RTC_MIN_VALID_TIME);
   }
 }
 

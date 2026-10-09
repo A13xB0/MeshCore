@@ -71,7 +71,7 @@ struct NeighbourInfo {
 };
 
 #ifndef FIRMWARE_BUILD_DATE
-  #define FIRMWARE_BUILD_DATE   "14 Aug 2026"
+  #define FIRMWARE_BUILD_DATE   "6 Oct 2026"
 #endif
 
 #ifndef FIRMWARE_VERSION
@@ -227,7 +227,7 @@ public:
   void saveIdentity(const mesh::LocalIdentity& new_id) override;
   void clearStats() override;
 
-  void handleCommand(uint32_t sender_timestamp, char* command, char* reply);
+  virtual void handleCommand(uint32_t sender_timestamp, char* command, char* reply);
   void loop();
 
 #if defined(WITH_BRIDGE)
