@@ -86,8 +86,8 @@ void WebInterface::begin(const char* ap_ssid, const char* ap_pwd) {
       req->send(200, "application/json", "{}");
     });
   }
-  server->on("/api/graph", HTTP_GET, [](AsyncWebServerRequest* req) {
-    req->send(200, "application/json", "{\"nodes\":[],\"edges\":[]}");
+  server->on("/api/graph", HTTP_GET, [mesh](AsyncWebServerRequest* req) {
+    req->send(200, "application/json", mesh->graphJson());
   });
 
   server->begin();

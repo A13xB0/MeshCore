@@ -92,5 +92,6 @@ public:
   String observerHeartbeat();       // signed status payload for the MQTT observer
   bool observerNextRx(String& out); // next heard-packet payload for the /rx topic, or false
   String regionsJson();             // /api/regions: scoped-flood region tree
+  String graphJson();               // /api/graph: this repeater + directly-heard nodes
   void handleCommand(uint32_t sender_timestamp, char* command, char* reply) override;
 };

@@ -529,3 +529,25 @@ String MeshOSFull::regionsJson() {
   j += "\"home\":\""; j += (home ? home->name : "*"); j += "\"}";
   return j;
 }
+
+// /api/graph: node 0 is this repeater; directly-heard neighbours hang off it.
+// A full path-topology graph needs per-path tracking (not reconstructed); this
+// is the one-hop view the Network tab can already draw.
+String MeshOSFull::graphJson() {
+  uint32_t now = getRTCClock()->getCurrentTime();
+  char me[20];
+  mesh::Utils::toHex(me, self_id.pub_key, 6);
+  String j = "{\"n\":[[0,\""; j += me; j += "\",8,2,0,0,0,0]";
+#if MAX_NEIGHBOURS
+  const NeighbourInfo* nb = getNeighbours();
+  for (int i = 0; i < getMaxNeighbours(); i++) {
+    if (nb[i].heard_timestamp == 0) continue;
+    char id[20];
+    mesh::Utils::toHex(id, nb[i].id.pub_key, 6);
+    long age = (long)now - (long)nb[i].heard_timestamp;
+    j += ",[0,\""; j += id; j += "\",8,1,1,"; j += nb[i].snr; j += ','; j += nb[i].snr; j += ','; j += age; j += ']';
+  }
+#endif
+  j += "]}";
+  return j;
+}
