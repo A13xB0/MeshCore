@@ -11,6 +11,12 @@
 #define PUBLIC_CHANNEL_HASH   0x11
 #define MESHOS_NET_FILE       "/meshos_net.json"
 
+// MeshOS repeater product version (distinct from the MeshCore base version this
+// is forked from). Reported by `ver.meshos` and as "ver" in the status JSON.
+#ifndef MESHOS_VERSION
+  #define MESHOS_VERSION   "1.6.1"
+#endif
+
 class AbstractBridge;   // the AirLink bridge (ESP32 only); hooked from logRx
 
 class MeshOSFull : public MyMesh {
@@ -21,6 +27,7 @@ class MeshOSFull : public MyMesh {
   uint32_t entry_hits[MESHOS_MAX_ENTRIES] = {};
   FILESYSTEM* _net_fs = NULL;
   AbstractBridge* _airlink = NULL;   // set by main.cpp when the AirLink bridge runs
+  bool _first_run = false;           // no MeshOS config found at boot
 
   // The shipped binary keeps isChannelBlocked a separate function because its integrated
   // CLI/web handler calls it from several places. Until that handler is reconstructed, noinline
@@ -99,6 +106,11 @@ public:
   mesh::PacketManager* getPacketManager() { return _mgr; }
   NodePrefs* nodePrefs() { return getNodePrefs(); }
   MeshOSPrefs& meshosPrefs() { return prefs; }
+  bool setupDone() const { return prefs.setup_done; }
+  bool inheritedPrefs() const { return prefs.inherited; }
+  bool firstRun() const { return _first_run; }
+  const char* wifiSsid() const { return prefs.wifi_ssid; }
+  bool webPwdSet() const { return prefs.web_pwd[0] != 0; }
   bool airlinkEnabled() const { return prefs.airlink; }
   bool airlinkPublic() const { return prefs.airlink_pub; }
   const char* airlinkChannels() const { return prefs.airlink_ch; }

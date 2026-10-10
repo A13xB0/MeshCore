@@ -13,13 +13,19 @@ class Observer {
   void* _mqtt = NULL;         // PubSubClient* (opaque in the header)
   unsigned long _next_pub = 0;
   bool _was_on = false;
-  char _client_id[16];
+  char _client_id[16] = {};
 
   bool connect();
+
+  // stats for the status JSON "mqtt" object
+  uint32_t _published = 0, _dropped = 0, _connects = 0;
+  unsigned long _sign_us = 0;
+  bool _connected = false;
 
 public:
   Observer(MeshOSFull& mesh) : _mesh(mesh) { }
   void loop();                // call from the main loop; no-ops unless observer is on + WiFi is up
+  String mqttJson();          // the "mqtt" object for /api/status
 };
 
 #endif

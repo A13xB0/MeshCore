@@ -69,36 +69,60 @@ to `meshos/rpt/<id>/rx` plus a signed heartbeat to `.../status`; subscribes to
 `meshos/chat/control`. Separate from NTP and update checks.
 - `set observer` (on/off), `get observer`
 
-## 6. Self-update (OTA)
-The repeater checks meshcore.co.uk a few times a day, downloads a firmware for its
-board, verifies its sha256 against the manifest, writes it to the spare slot and
-reboots. Identity, settings and network config are preserved.
-- `fw.check`, `fw.update`; manual `.bin` upload still at `/update` (ElegantOTA).
+## 6. Self-update (OTA)  — reconstructed (`SelfUpdate.h/.cpp`)
+Three install paths:
+- **Site self-update**: `fw.check` fetches the board's entry (`rpt_heltec_v4`) from
+  `https://meshcore.co.uk/fw/firmware.json`, compares versions; `fw.update [force]`
+  downloads the `.bin` over HTTPS on a FreeRTOS task, streams it into the OTA slot
+  while hashing, checks sha256 against the manifest, and reboots. `fw.status`,
+  `fw.manifest <url>|default`.
+- **Direct install**: `fw.install <url> <sha256> [size]`.
+- **App-streamed**: `fw.begin <size> <sha256>` / `fw.ack` / `fw.commit` / `fw.abort`
+  (the app pushes chunks over the companion link; commit verifies + reboots).
+- Manual `.bin` upload still at `/update` (ElegantOTA), independent of this module.
+Progress is reported through the `fw` object in `/api/status`.
 
-## 7. Finder / scan
+## 7. WiFi station + NTP  — reconstructed (`EspNet.h/.cpp`)
+In WiFi mode the repeater runs the config AP *and* joins the saved network as a
+station (for observer/OTA/NTP). The RTC is synced forward from NTP
+(`pool.ntp.org`, `time.google.com`). Base `clock` / `clock sync` are inherited.
+
+## 8. Finder / scan
 Lists repeaters heard directly (last hop of received packets, zero-hop adverts,
 and scan replies), filling in key, name and signal both ways.
 - `finder.start`
 
-## 8. Network graph
+## 9. Network graph
 Packet/path visualisation of the mesh as seen by this repeater (`/api/graph`,
 `graph.clear`).
 
-## 9. Setup wizard
-First-boot guided setup (`setup.done`, `setup.reset`), re-runnable from Settings.
+## 10. Setup wizard  — reconstructed (`MeshOSFull`)
+First-boot guided setup. Backend: `setup`/`inherited` flags in the status JSON,
+`setup.done` / `setup.reset`, and first-run detection. The wizard UI itself is in
+the extracted `web/index.html`.
+- Note: migrating WiFi from a prior MeshOS *companion* image reads that firmware's
+  own pref layout, which is not reconstructed; the first-run/inherited plumbing is.
 
-## 10. Misc
+## 11. Status / prefs API  — reconstructed (`main.cpp` `buildStatusJson`)
+`/api/status` emits the full recovered schema (name/id/ver/board/heap/clock/setup/
+ble/wifi/eth/ap/mqtt/radio/air/pkts/fw/airlink/…), tying the subsystems together.
+- Honest zero/false for values not tracked: rolling 5-min/24-h airtime windows,
+  the signal card, BLE bond count.
+
+## 12. Misc
 - Radio presets fetched live from `https://api.meshcore.nz/api/v1/config`.
-- MeshOS logo and banner; `ver.meshos` reports the MeshOS version.
+- MeshOS logo and banner; `ver.meshos` reports the MeshOS version (`1.6.1`).
+- `set web.password` / `web.password.clear`, `get net` / `get ip` / `get web`.
 
 ## Reconstruction status
 - Spam filter: reconstructed on nRF52 (branch `meshos-repeater-lite`) and in the
   full ESP32 build (`MeshOSFull`).
 - Web assets: extracted byte-exact (`web/`).
-- Reconstructed as source (full ESP32 build compiles, flash 29.4%): config struct,
-  command dispatch, config read/write, web server + all `/api` tab backends,
-  transport switching, BLE transport, trace, finder, graph, observer (MQTT) and
-  **AirLink** — AirLink was the last remaining subsystem.
-- Open gaps: OTA self-update and the setup wizard backend are catalogued here but
-  not yet reconstructed as source; AirLink's per-connection BLE link-parameter
-  negotiation is stubbed (see §4).
+- Reconstructed as source (full ESP32 build compiles, flash 31.7%): config struct,
+  command dispatch, config read/write, web server + all `/api` tab backends +
+  full status JSON, transport switching, WiFi-station + NTP, BLE transport, trace,
+  finder, graph, observer (MQTT), AirLink, and **self-update (OTA)** + setup wizard
+  backend — every major repeater subsystem now has a source reconstruction.
+- Open gaps (all flagged in code): AirLink's per-connection BLE link-parameter
+  negotiation; the companion-prefs WiFi migration source; and the status fields
+  noted in §11 (airtime windows / signal / bond count).

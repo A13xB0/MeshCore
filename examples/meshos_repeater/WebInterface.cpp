@@ -49,8 +49,9 @@ void WebInterface::begin(const char* ap_ssid, const char* ap_pwd) {
     req->send(r);
   });
 
-  server->on("/api/status", HTTP_GET, [mesh](AsyncWebServerRequest* req) {
-    req->send(200, "application/json", statusJson(*mesh));
+  StatusProvider status_fn = _status_fn;
+  server->on("/api/status", HTTP_GET, [mesh, status_fn](AsyncWebServerRequest* req) {
+    req->send(200, "application/json", status_fn ? status_fn() : statusJson(*mesh));
   });
 
   server->on("/api/cmd", HTTP_POST, [mesh](AsyncWebServerRequest* req) {
@@ -68,8 +69,8 @@ void WebInterface::begin(const char* ap_ssid, const char* ap_pwd) {
 
   // Endpoints whose backends (packet log, neighbour scan, regions, trace, graph)
   // are not reconstructed yet - answered with valid empty payloads so the SPA loads.
-  server->on("/api/hello", HTTP_GET, [mesh](AsyncWebServerRequest* req) {
-    req->send(200, "application/json", statusJson(*mesh));
+  server->on("/api/hello", HTTP_GET, [mesh, status_fn](AsyncWebServerRequest* req) {
+    req->send(200, "application/json", status_fn ? status_fn() : statusJson(*mesh));
   });
   server->on("/api/log", HTTP_GET, [mesh](AsyncWebServerRequest* req) {
     uint32_t since = req->hasParam("since") ? req->getParam("since")->value().toInt() : 0;

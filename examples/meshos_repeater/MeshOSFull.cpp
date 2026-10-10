@@ -216,6 +216,19 @@ void MeshOSFull::beginFull(FILESYSTEM* fs) {
   }
   if (prefs.blocked_n > MESHOS_MAX_BLOCKED) prefs.blocked_n = MESHOS_MAX_BLOCKED;
   if (prefs.entry_n > MESHOS_MAX_ENTRIES) prefs.entry_n = MESHOS_MAX_ENTRIES;
+
+  // First run: no MeshOS config yet. The shipped firmware carries over WiFi +
+  // transport from a MeshOS *companion* image that may have been on this board,
+  // by reading that firmware's own prefs file. That companion pref layout is a
+  // different firmware's and is not reconstructed here, so we only mark the
+  // first-run state; if WiFi was somehow already present we flag it inherited so
+  // the setup wizard shows its "carried over" note (recovered log line kept).
+  _first_run = (!prefs.configured && !fs->exists(MESHOS_NET_FILE));
+  if (_first_run && prefs.wifi_ssid[0]) {
+    prefs.inherited = 1;
+    Serial.printf("NET: first run - inherited WiFi '%s' from the companion prefs, transport %s\n",
+                  prefs.wifi_ssid, prefs.transport == 2 ? "wifi" : "ble");
+  }
 }
 
 // Network/web/radio-front-end settings of the MeshOS repeater. These apply after a reboot.
@@ -246,18 +259,25 @@ bool MeshOSFull::handleConfigCommand(char* command, char* reply) {
     strcpy(reply, "OK");
     return true;
   }
-  if (memcmp(command, "set web.pwd ", 12) == 0) {
-    char* arg = &command[12];
+  if (memcmp(command, "set web.password ", 17) == 0 || memcmp(command, "web.password.change ", 20) == 0) {
+    char* arg = command[3] == '.' ? &command[20] : &command[17];  // web.password.change vs set web.password
     while (*arg == ' ') arg++;
     StrHelper::strncpy(prefs.web_pwd, arg, sizeof(prefs.web_pwd));
     saveConfig();
-    strcpy(reply, "OK");
+    strcpy(reply, "OK - web password changed, sign in again");
+    return true;
+  }
+  if (strcmp(command, "web.password.clear") == 0) {
+    prefs.web_pwd[0] = 0;
+    saveConfig();
+    strcpy(reply, "OK - web password changed, sign in again");
     return true;
   }
   if (memcmp(command, "set ble.pin ", 12) == 0) {
     prefs.ble_pin = atoi(&command[12]);
     saveConfig();
-    sprintf(reply, "OK - pin %06u, reboot to apply", prefs.ble_pin);
+    sprintf(reply, "OK - Bluetooth PIN set to %06lu, reboot to apply. Phones paired with the old PIN must forget the repeater and pair again",
+            (unsigned long)prefs.ble_pin);
     return true;
   }
   if (memcmp(command, "set observer ", 13) == 0) {
@@ -290,6 +310,14 @@ bool MeshOSFull::handleConfigCommand(char* command, char* reply) {
     sprintf(reply, "> %s", prefs.transport == 2 ? "wifi" : "ble");
     return true;
   }
+  if (strcmp(command, "get web") == 0) {
+    sprintf(reply, "> %s", prefs.web_pwd[0] ? "password set" : "no password");
+    return true;
+  }
+  if (strcmp(command, "get ble.pin") == 0) {
+    sprintf(reply, "> %06lu", (unsigned long)(prefs.ble_pin ? prefs.ble_pin : 123456));
+    return true;
+  }
   if (strcmp(command, "get wifi.ssid") == 0) {
     sprintf(reply, "> %s", prefs.wifi_ssid);
     return true;
@@ -300,6 +328,32 @@ bool MeshOSFull::handleConfigCommand(char* command, char* reply) {
   }
   if (strcmp(command, "get airlink") == 0) {
     sprintf(reply, "> %s", prefs.airlink ? "on" : "off");
+    return true;
+  }
+  if (strcmp(command, "setup.done") == 0) {
+    prefs.setup_done = 1;
+    prefs.configured = 1;
+    saveConfig();
+    strcpy(reply, "OK - setup complete");
+    return true;
+  }
+  if (strcmp(command, "setup.reset") == 0) {
+    prefs.setup_done = 0;
+    saveConfig();
+    strcpy(reply, "OK - the setup wizard will show when the page next loads");
+    return true;
+  }
+  if (strcmp(command, "ver.meshos") == 0) {
+    sprintf(reply, "> MeshOS repeater %s", MESHOS_VERSION);
+    return true;
+  }
+  if (strcmp(command, "graph.clear") == 0) {
+    memset(chan_heard, 0, sizeof(chan_heard));
+    memset(entry_heard, 0, sizeof(entry_heard));
+    _log_head = _log_count = 0;
+    _log_seq = 0;
+    not_repeated = 0;
+    strcpy(reply, "OK - graph cleared");
     return true;
   }
   return false;

@@ -44,6 +44,7 @@ bool Observer::connect() {
   if (mqtt->connect(_client_id, OBSERVER_USER, OBSERVER_PASS)) {
     Serial.printf("[MQTT] connected as %s -> %s\n", _client_id, OBSERVER_HOST);
     mqtt->subscribe(TOPIC_CONTROL);
+    _connects++;
     return true;
   }
   Serial.printf("[MQTT] connect failed rc=%d\n", mqtt->state());
@@ -54,11 +55,13 @@ void Observer::loop() {
   bool on = _mesh.observerEnabled() && WiFi.isConnected();
   if (!on) {
     if (_was_on) { Serial.println("[MQTT] observer OFF - not uploading"); _was_on = false; }
+    _connected = false;
     return;
   }
   if (!_was_on) { Serial.println("[MQTT] observer ON"); _was_on = true; _next_pub = 0; }
 
-  if (!connect()) return;
+  if (!connect()) { _connected = false; return; }
+  _connected = true;
   PubSubClient* mqtt = (PubSubClient*) _mqtt;
   mqtt->loop();
 
@@ -68,15 +71,31 @@ void Observer::loop() {
   char rx_topic[32];
   snprintf(rx_topic, sizeof(rx_topic), TOPIC_RX_FMT, id);
   String rx;
-  while (_mesh.observerNextRx(rx)) mqtt->publish(rx_topic, rx.c_str());
+  while (_mesh.observerNextRx(rx)) {
+    if (mqtt->publish(rx_topic, rx.c_str())) _published++; else _dropped++;
+  }
 
   if ((long)(millis() - _next_pub) < 0) return;
   _next_pub = millis() + HEARTBEAT_MS;
 
   char topic[32];
   snprintf(topic, sizeof(topic), TOPIC_STATUS_FMT, id);
+  unsigned long t0 = micros();
   String hb = _mesh.observerHeartbeat();
-  mqtt->publish(topic, hb.c_str());
+  _sign_us = micros() - t0;           // time to build+sign the heartbeat
+  if (mqtt->publish(topic, hb.c_str())) _published++; else _dropped++;
+}
+
+String Observer::mqttJson() {
+  char buf[200];
+  snprintf(buf, sizeof(buf),
+    "{\"enabled\":%s,\"connected\":%s,\"paused\":false,\"published\":%lu,\"dropped\":%lu,"
+    "\"connects\":%lu,\"client\":\"%s\",\"sign_us\":%lu}",
+    _mesh.observerEnabled() ? "true" : "false",
+    _connected ? "true" : "false",
+    (unsigned long)_published, (unsigned long)_dropped, (unsigned long)_connects,
+    _client_id, (unsigned long)_sign_us);
+  return String(buf);
 }
 
 #endif
