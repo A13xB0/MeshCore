@@ -36,6 +36,21 @@ class MeshOSFull : public MyMesh {
   }
   int matchEntry(const mesh::Packet* packet) const;
 
+  // recent-packet ring for the web /api/log (Packets tab)
+  struct PktLog {
+    uint32_t seq, t;
+    uint8_t dir, type, route, len, hops, hs, ch, fl;
+    int8_t snr4;
+    int16_t rssi;
+    uint8_t path[8];
+  };
+  static const uint8_t LOG_SIZE = 48;
+  PktLog _log[LOG_SIZE] = {};
+  uint8_t _log_head = 0, _log_count = 0;
+  uint32_t _log_seq = 0;
+  float _last_snr = 0, _last_rssi = 0;
+  void recordPkt(mesh::Packet* pkt, int len, uint8_t dir, uint8_t fl);
+
   void saveConfig();            // write prefs to /meshos_net.json
   void saveFilter() { saveConfig(); }
 
@@ -48,6 +63,12 @@ class MeshOSFull : public MyMesh {
 
 protected:
   bool allowPacketForward(const mesh::Packet* packet) override;
+  void logRxRaw(float snr, float rssi, const uint8_t raw[], int len) override {
+    _last_snr = snr; _last_rssi = rssi;
+    MyMesh::logRxRaw(snr, rssi, raw, len);
+  }
+  void logRx(mesh::Packet* pkt, int len, float score) override;
+  void logTx(mesh::Packet* pkt, int len) override;
 
 public:
   MeshOSFull(mesh::MainBoard& board, mesh::Radio& radio, mesh::MillisecondClock& ms, mesh::RNG& rng, mesh::RTCClock& rtc, mesh::MeshTables& tables)
@@ -56,6 +77,7 @@ public:
   void beginFull(FILESYSTEM* fs);
   uint8_t getTransport() const { return prefs.transport; }
   uint32_t getBlePin() const { return prefs.ble_pin ? prefs.ble_pin : 123456; }
-  String channelsJson();   // /api/channels: block state + heard stats
+  String channelsJson();            // /api/channels: block state + heard stats
+  String logJson(uint32_t since);   // /api/log: recent packets since a sequence number
   void handleCommand(uint32_t sender_timestamp, char* command, char* reply) override;
 };

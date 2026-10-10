@@ -71,7 +71,11 @@ void WebInterface::begin(const char* ap_ssid, const char* ap_pwd) {
   server->on("/api/hello", HTTP_GET, [mesh](AsyncWebServerRequest* req) {
     req->send(200, "application/json", statusJson(*mesh));
   });
-  for (const char* path : { "/api/log", "/api/finder", "/api/regions", "/api/trace" }) {
+  server->on("/api/log", HTTP_GET, [mesh](AsyncWebServerRequest* req) {
+    uint32_t since = req->hasParam("since") ? req->getParam("since")->value().toInt() : 0;
+    req->send(200, "application/json", mesh->logJson(since));
+  });
+  for (const char* path : { "/api/finder", "/api/regions", "/api/trace" }) {
     server->on(path, HTTP_GET, [](AsyncWebServerRequest* req) {
       req->send(200, "application/json", "{}");
     });

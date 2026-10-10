@@ -352,3 +352,63 @@ String MeshOSFull::channelsJson() {
   j += "]}";
   return j;
 }
+
+void MeshOSFull::recordPkt(mesh::Packet* pkt, int len, uint8_t dir, uint8_t fl) {
+  PktLog& e = _log[_log_head];
+  e.seq = ++_log_seq;
+  e.t = millis() / 1000;
+  e.dir = dir;
+  e.type = pkt->getPayloadType();
+  e.route = pkt->getRouteType();
+  e.len = len;
+  e.hops = pkt->path_len & 63;
+  e.hs = (pkt->path_len >> 6) + 1;
+  e.snr4 = dir == 0 ? (int8_t)(_last_snr * 4) : 0;
+  e.rssi = dir == 0 ? (int16_t)_last_rssi : 0;
+  bool grp = (e.type == PAYLOAD_TYPE_GRP_TXT || e.type == PAYLOAD_TYPE_GRP_DATA);
+  e.ch = (grp && pkt->payload_len > 0) ? pkt->payload[0] : 255;
+  e.fl = fl;
+  uint16_t n = (uint16_t)e.hops * e.hs;
+  if (n > sizeof(e.path)) n = sizeof(e.path);
+  memcpy(e.path, pkt->path, n);
+  _log_head = (_log_head + 1) % LOG_SIZE;
+  if (_log_count < LOG_SIZE) _log_count++;
+}
+
+void MeshOSFull::logRx(mesh::Packet* pkt, int len, float score) {
+  MyMesh::logRx(pkt, len, score);
+  uint8_t fl = 0;
+  uint8_t type = pkt->getPayloadType();
+  if (type == PAYLOAD_TYPE_GRP_TXT || type == PAYLOAD_TYPE_GRP_DATA) {
+    if (pkt->payload_len > 0 && isChannelBlocked(pkt->payload[0])) fl |= 2;
+    else if (matchEntry(pkt) >= 0) fl |= 1;
+  }
+  recordPkt(pkt, len, 0, fl);
+}
+
+void MeshOSFull::logTx(mesh::Packet* pkt, int len) {
+  MyMesh::logTx(pkt, len);
+  recordPkt(pkt, len, 1, 0);
+}
+
+String MeshOSFull::logJson(uint32_t since) {
+  String j = "{\"e\":[";
+  bool first = true;
+  for (uint8_t k = 0; k < _log_count; k++) {
+    uint8_t idx = (_log_head + LOG_SIZE - _log_count + k) % LOG_SIZE;
+    PktLog& e = _log[idx];
+    if (e.seq <= since) continue;
+    uint16_t n = (uint16_t)e.hops * e.hs;
+    if (n > sizeof(e.path)) n = sizeof(e.path);
+    char path[sizeof(e.path) * 2 + 2];
+    toHex(e.path, n, path);
+    if (!first) j += ',';
+    j += '['; j += e.seq; j += ','; j += e.t; j += ','; j += e.dir; j += ','; j += e.type;
+    j += ','; j += e.route; j += ','; j += e.len; j += ','; j += e.hops; j += ','; j += e.snr4;
+    j += ','; j += e.rssi; j += ",\""; j += path; j += "\","; j += e.ch; j += ','; j += e.fl;
+    j += ','; j += e.hs; j += ']';
+    first = false;
+  }
+  j += "]}";
+  return j;
+}
