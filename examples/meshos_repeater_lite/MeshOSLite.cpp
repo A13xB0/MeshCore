@@ -2,8 +2,8 @@
 
 const char* lite_hex_chars = "0123456789ABCDEF";
 
-static void liteToHex(char* dest, const uint8_t* src, int len) {
-  for (int i = 0; i < len; i++) {
+static void liteToHex(const uint8_t* src, uint8_t len, char* dest) {
+  for (uint8_t i = 0; i < len; i++) {
     *dest++ = lite_hex_chars[src[i] >> 4];
     *dest++ = lite_hex_chars[src[i] & 0x0F];
   }
@@ -264,7 +264,7 @@ bool MeshOSLite::handleLiteCommand(char* command, char* reply) {
       return true;
     }
     char hex[LITE_MAX_ENTRY_LEN*2 + 2];
-    liteToHex(hex, id, len);
+    liteToHex(id, len, hex);
 
     if (block) {
       if (addEntry(id, len)) {
@@ -291,7 +291,7 @@ bool MeshOSLite::handleLiteCommand(char* command, char* reply) {
     int len = 16;
     for (int i = 0; i < lite.entry_n && i < LITE_MAX_ENTRIES; i++) {
       char hex[LITE_MAX_ENTRY_LEN*2 + 2];
-      liteToHex(hex, lite.entries[i].id, lite.entries[i].len);
+      liteToHex(lite.entries[i].id, lite.entries[i].len, hex);
       len += snprintf(&reply[len], 160 - len, "%s %s (%lu)", i == 0 ? "" : ",", hex, entry_hits[i]);
       if (len >= 138) break;
     }
