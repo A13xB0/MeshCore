@@ -1,5 +1,21 @@
 #pragma once
 
+// ---------------------------------------------------------------------------
+// MeshOS Repeater Lite  (nRF52 / RP2040 / small ESP32 boards)
+//
+// The stock MeshCore repeater plus the MeshOS spam filters: a list of channel
+// hashes that are not repeated, and a list of "entry" repeaters (matched on the
+// first hop of a flood path) whose channel traffic is dropped. This is the
+// cut-down sibling of the full ESP32 repeater in examples/meshos_repeater/ - no
+// web UI, observer, AirLink or OTA, just the filter + config + CLI.
+//
+// Reconstructed from the shipped MeshOS Lite firmware and tuned so the compiled
+// output byte-matches the author's build. A few expressions here look unusual
+// (e.g. the inline hex-nibble loop in parseChannelHash, or the loop-bound style)
+// because they were shaped to reproduce the original codegen - keep them as they
+// are; "tidying" them changes the generated instructions and lowers the match.
+// ---------------------------------------------------------------------------
+
 #include "../simple_repeater/MyMesh.h"
 
 #define MESHOS_LITE_NAME      "MeshOS Repeater Lite"
