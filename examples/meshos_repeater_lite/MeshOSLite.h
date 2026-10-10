@@ -44,7 +44,7 @@ class MeshOSLite : public MyMesh {
   uint32_t entry_hits[LITE_MAX_ENTRIES] = {};
 
   bool isChannelBlocked(uint8_t hash) const {
-    for (int i = 0; i < lite.blocked_n; i++) {
+    for (uint8_t i = 0; i < lite.blocked_n && i < LITE_MAX_BLOCKED; i++) {
       if (lite.blocked[i] == hash) return true;
     }
     return false;
