@@ -55,6 +55,11 @@ class MeshOSLite : public MyMesh {
     }
     return -1;
   }
+  bool blockChannel(uint8_t hash);      // add to the block list; false if it is full
+  bool unblockChannel(uint8_t hash);    // remove from the block list; false if it was not blocked
+  bool addEntry(const uint8_t* id, uint8_t len);     // add an entry repeater; false if full/bad len
+  bool removeEntry(const uint8_t* id, uint8_t len);  // remove one; false if it was not blocked
+
   void saveLite() {
     if (_lite_fs) {
       _lite_fs->remove(MESHOS_LITE_FILE);
@@ -71,7 +76,6 @@ class MeshOSLite : public MyMesh {
       }
     }
   }
-  bool removeEntry(const uint8_t* id, uint8_t len);
 
 protected:
   bool allowPacketForward(const mesh::Packet* packet) override;

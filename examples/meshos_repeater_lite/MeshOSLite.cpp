@@ -38,6 +38,27 @@ static bool parseChannelHash(const char* arg, uint8_t& hash) {
   return true;
 }
 
+// a repeater ID prefix as hex: "A0" or "A07E" (optional 0x), 1..3 bytes -> id/len
+static bool parseEntryId(const char* arg, uint8_t* id, uint8_t& len) {
+  if (arg[0] == '0' && (arg[1] | 0x20) == 'x') arg += 2;
+  memset(id, 0, LITE_MAX_ENTRY_LEN);
+  int nibbles = 0;
+  bool ok = *arg != 0;
+  for ( ; ok && *arg; arg++) {
+    if (*arg == ' ') continue;
+    int v = hexNibble(*arg);
+    if (v < 0 || nibbles >= LITE_MAX_ENTRY_LEN * 2) {
+      ok = false;
+    } else {
+      id[nibbles / 2] = (id[nibbles / 2] << 4) | v;
+      nibbles++;
+    }
+  }
+  if (!ok || nibbles < 2 || (nibbles & 1)) return false;
+  len = nibbles / 2;
+  return true;
+}
+
 // lists the most-heard hashes, busiest first: "A5 12, 11 3, ..."
 static int formatTopHeard(const uint8_t* counts, char* dest, int dest_len) {
   uint8_t done[256];
@@ -60,6 +81,41 @@ static int formatTopHeard(const uint8_t* counts, char* dest, int dest_len) {
     if (len + 10 >= dest_len) break;
   }
   return n;
+}
+
+bool MeshOSLite::blockChannel(uint8_t hash) {
+  if (isChannelBlocked(hash)) return true;             // already blocked
+  if (lite.blocked_n >= LITE_MAX_BLOCKED) return false;  // list full
+  lite.blocked[lite.blocked_n++] = hash;
+  saveLite();
+  return true;
+}
+
+bool MeshOSLite::unblockChannel(uint8_t hash) {
+  uint8_t n = lite.blocked_n;
+  for (uint8_t i = 0; i < n; i++) {
+    if (lite.blocked[i] == hash) {
+      for (uint8_t j = i; j + 1 < n; j++) lite.blocked[j] = lite.blocked[j + 1];
+      lite.blocked_n = n - 1;
+      saveLite();
+      return true;
+    }
+  }
+  return false;
+}
+
+bool MeshOSLite::addEntry(const uint8_t* id, uint8_t len) {
+  if (len < 1 || len > LITE_MAX_ENTRY_LEN) return false;
+  if (findEntry(id, len) >= 0) return true;            // already blocked
+  if (lite.entry_n >= LITE_MAX_ENTRIES) return false;  // list full
+  LiteEntry* e = &lite.entries[lite.entry_n];
+  memset(e, 0, sizeof(*e));
+  e->len = len;
+  memcpy(e->id, id, len);
+  entry_hits[lite.entry_n] = 0;
+  lite.entry_n++;
+  saveLite();
+  return true;
 }
 
 bool MeshOSLite::removeEntry(const uint8_t* id, uint8_t len) {
@@ -131,26 +187,17 @@ bool MeshOSLite::handleLiteCommand(char* command, char* reply) {
       return true;
     }
     if (block) {
-      if (!isChannelBlocked(hash)) {
-        if (lite.blocked_n >= LITE_MAX_BLOCKED) {
-          sprintf(reply, "Err - block list full (%d)", LITE_MAX_BLOCKED);
-          return true;
-        }
-        lite.blocked[lite.blocked_n++] = hash;
-        saveLite();
+      if (blockChannel(hash)) {
+        sprintf(reply, "OK - channel %02X blocked (not repeated)", hash);
+      } else {
+        sprintf(reply, "Err - block list full (%d)", LITE_MAX_BLOCKED);
       }
-      sprintf(reply, "OK - channel %02X blocked (not repeated)", hash);
     } else {
-      int i = 0;
-      while (i < lite.blocked_n && i < LITE_MAX_BLOCKED && lite.blocked[i] != hash) i++;
-      if (i >= lite.blocked_n || i >= LITE_MAX_BLOCKED) {
+      if (unblockChannel(hash)) {
+        sprintf(reply, "OK - channel %02X unblocked", hash);
+      } else {
         sprintf(reply, "Err - channel %02X was not blocked", hash);
-        return true;
       }
-      for ( ; i + 1 < lite.blocked_n; i++) lite.blocked[i] = lite.blocked[i + 1];
-      lite.blocked_n--;
-      saveLite();
-      sprintf(reply, "OK - channel %02X unblocked", hash);
     }
     return true;
   }
@@ -188,19 +235,10 @@ bool MeshOSLite::handleLiteCommand(char* command, char* reply) {
     while (*arg == ' ') arg++;
 
     if (strcmp(arg, "on") == 0 || strcmp(arg, "1") == 0) {
-      int i = 0;
-      while (i < lite.blocked_n && i < LITE_MAX_BLOCKED && lite.blocked[i] != PUBLIC_CHANNEL_HASH) i++;
-      if (i < lite.blocked_n && i < LITE_MAX_BLOCKED) {
-        for ( ; i + 1 < lite.blocked_n; i++) lite.blocked[i] = lite.blocked[i + 1];
-        lite.blocked_n--;
-        saveLite();
-      }
+      unblockChannel(PUBLIC_CHANNEL_HASH);
       sprintf(reply, "OK - public channel %s", "repeated");
     } else if (strcmp(arg, "off") == 0 || strcmp(arg, "0") == 0) {
-      if (!isChannelBlocked(PUBLIC_CHANNEL_HASH) && lite.blocked_n < LITE_MAX_BLOCKED) {
-        lite.blocked[lite.blocked_n++] = PUBLIC_CHANNEL_HASH;
-        saveLite();
-      }
+      blockChannel(PUBLIC_CHANNEL_HASH);
       sprintf(reply, "OK - public channel %s", "NOT repeated");
     } else {
       strcpy(reply, "Err - on|off");
@@ -217,51 +255,28 @@ bool MeshOSLite::handleLiteCommand(char* command, char* reply) {
     bool block = command[0] == 'b';
     char* arg = &command[block ? 12 : 14];
     while (*arg == ' ') arg++;
-    if (arg[0] == '0' && (arg[1] | 0x20) == 'x') arg += 2;
 
-    uint8_t id[LITE_MAX_ENTRY_LEN] = {0};
-    int nibbles = 0;
-    bool ok = *arg != 0;
-    for ( ; ok && *arg; arg++) {
-      if (*arg == ' ') continue;
-      int v = hexNibble(*arg);
-      if (v < 0 || nibbles >= LITE_MAX_ENTRY_LEN*2) {
-        ok = false;
-      } else {
-        id[nibbles / 2] = (id[nibbles / 2] << 4) | v;
-        nibbles++;
-      }
-    }
-    if (!ok || nibbles < 2 || (nibbles & 1)) {
+    uint8_t id[LITE_MAX_ENTRY_LEN], len;
+    if (!parseEntryId(arg, id, len)) {
       strcpy(reply, "Err - give the repeater's ID in hex, 1-3 bytes (e.g. A0 or A07E)");
       return true;
     }
-    uint8_t len = nibbles / 2;
     char hex[LITE_MAX_ENTRY_LEN*2 + 2];
     liteToHex(hex, id, len);
 
-    if (!block) {
+    if (block) {
+      if (addEntry(id, len)) {
+        sprintf(reply, "OK - channel messages entering via %s are not repeated", hex);
+      } else {
+        sprintf(reply, "Err - entry block list full (%d)", LITE_MAX_ENTRIES);
+      }
+    } else {
       if (removeEntry(id, len)) {
         sprintf(reply, "OK - entry %s unblocked", hex);
       } else {
         sprintf(reply, "Err - entry %s was not blocked", hex);
       }
-      return true;
     }
-    if (findEntry(id, len) < 0) {
-      if (lite.entry_n >= LITE_MAX_ENTRIES) {
-        sprintf(reply, "Err - entry block list full (%d)", LITE_MAX_ENTRIES);
-        return true;
-      }
-      LiteEntry* e = &lite.entries[lite.entry_n];
-      memset(e, 0, sizeof(*e));
-      e->len = len;
-      memcpy(e->id, id, len);
-      entry_hits[lite.entry_n] = 0;
-      lite.entry_n++;
-      saveLite();
-    }
-    sprintf(reply, "OK - channel messages entering via %s are not repeated", hex);
     return true;
   }
 
