@@ -23,7 +23,19 @@ class MeshOSFull : public MyMesh {
     }
     return false;
   }
+  int findEntry(const uint8_t* id, uint8_t len) const {
+    for (int i = 0; i < prefs.entry_n; i++) {
+      if (prefs.entries[i].len == len && memcmp(prefs.entries[i].id, id, len) == 0) return i;
+    }
+    return -1;
+  }
   int matchEntry(const mesh::Packet* packet) const;
+  void saveFilter() { }   // TODO: persist to /prefs.json once the config writer is reconstructed
+
+  bool blockChannel(uint8_t hash);
+  bool unblockChannel(uint8_t hash);
+  bool addEntry(const uint8_t* id, uint8_t len);
+  bool removeEntry(const uint8_t* id, uint8_t len);
 
 protected:
   bool allowPacketForward(const mesh::Packet* packet) override;
@@ -32,6 +44,5 @@ public:
   MeshOSFull(mesh::MainBoard& board, mesh::Radio& radio, mesh::MillisecondClock& ms, mesh::RNG& rng, mesh::RTCClock& rtc, mesh::MeshTables& tables)
      : MyMesh(board, radio, ms, rng, rtc, tables) { }
 
-  bool blockChannel(uint8_t hash);
-  bool unblockChannel(uint8_t hash);
+  bool handleFilterCommand(char* command, char* reply);
 };
