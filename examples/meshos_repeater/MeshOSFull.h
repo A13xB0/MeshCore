@@ -9,6 +9,7 @@
 // in FEATURES.md and not yet reconstructed.
 
 #define PUBLIC_CHANNEL_HASH   0x11
+#define MESHOS_NET_FILE       "/meshos_net.json"
 
 class MeshOSFull : public MyMesh {
   MeshOSPrefs prefs;                 // sits at the base-class end -> blocked_n at +0x90
@@ -16,6 +17,7 @@ class MeshOSFull : public MyMesh {
   uint8_t entry_heard[256] = {};
   uint32_t not_repeated = 0;
   uint32_t entry_hits[MESHOS_MAX_ENTRIES] = {};
+  FILESYSTEM* _net_fs = NULL;
 
   // The shipped binary keeps isChannelBlocked a separate function because its integrated
   // CLI/web handler calls it from several places. Until that handler is reconstructed, noinline
@@ -33,12 +35,16 @@ class MeshOSFull : public MyMesh {
     return -1;
   }
   int matchEntry(const mesh::Packet* packet) const;
-  void saveFilter() { }   // TODO: persist to /prefs.json once the config writer is reconstructed
+
+  void saveConfig();            // write prefs to /meshos_net.json
+  void saveFilter() { saveConfig(); }
 
   bool blockChannel(uint8_t hash);
   bool unblockChannel(uint8_t hash);
   bool addEntry(const uint8_t* id, uint8_t len);
   bool removeEntry(const uint8_t* id, uint8_t len);
+  bool handleFilterCommand(char* command, char* reply);
+  bool handleConfigCommand(char* command, char* reply);
 
 protected:
   bool allowPacketForward(const mesh::Packet* packet) override;
@@ -47,5 +53,6 @@ public:
   MeshOSFull(mesh::MainBoard& board, mesh::Radio& radio, mesh::MillisecondClock& ms, mesh::RNG& rng, mesh::RTCClock& rtc, mesh::MeshTables& tables)
      : MyMesh(board, radio, ms, rng, rtc, tables) { }
 
-  bool handleFilterCommand(char* command, char* reply);
+  void beginFull(FILESYSTEM* fs);
+  void handleCommand(uint32_t sender_timestamp, char* command, char* reply) override;
 };

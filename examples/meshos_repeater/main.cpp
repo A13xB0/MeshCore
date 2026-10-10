@@ -105,6 +105,7 @@ void setup() {
   sensors.begin();
 
   the_mesh.begin(fs);
+  the_mesh.beginFull(fs);
 
 #ifdef DISPLAY_CLASS
   ui_task.begin(the_mesh.getNodePrefs(), FIRMWARE_BUILD_DATE, FIRMWARE_VERSION);
@@ -148,7 +149,7 @@ void loop() {
       the_mesh.handleCommand(0, command, reply);
     }
 #else
-    if (!the_mesh.handleFilterCommand(command, reply)) the_mesh.handleCommand(0, command, reply);
+    the_mesh.handleCommand(0, command, reply);
 #endif
     if (reply[0]) {
       Serial.print("  -> "); Serial.println(reply);

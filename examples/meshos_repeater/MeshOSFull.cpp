@@ -180,3 +180,69 @@ bool MeshOSFull::handleFilterCommand(char* command, char* reply) {
   }
   return false;
 }
+
+void MeshOSFull::saveConfig() {
+  if (!_net_fs) return;
+  _net_fs->remove(MESHOS_NET_FILE);
+#if defined(NRF52_PLATFORM) || defined(STM32_PLATFORM)
+  File file = _net_fs->open(MESHOS_NET_FILE, FILE_O_WRITE);
+#elif defined(RP2040_PLATFORM)
+  File file = _net_fs->open(MESHOS_NET_FILE, "w");
+#else
+  File file = _net_fs->open(MESHOS_NET_FILE, "w", true);
+#endif
+  if (file) {
+    prefs.saveSerial(file);
+    file.close();
+  }
+}
+
+void MeshOSFull::beginFull(FILESYSTEM* fs) {
+  _net_fs = fs;
+  if (fs->exists(MESHOS_NET_FILE)) {
+    File file = fs->open(MESHOS_NET_FILE);
+    if (file) {
+      prefs.loadSerial(file);
+      file.close();
+    }
+  }
+  if (prefs.blocked_n > MESHOS_MAX_BLOCKED) prefs.blocked_n = MESHOS_MAX_BLOCKED;
+  if (prefs.entry_n > MESHOS_MAX_ENTRIES) prefs.entry_n = MESHOS_MAX_ENTRIES;
+}
+
+// Network/web/radio-front-end settings of the MeshOS repeater. These apply after a reboot.
+bool MeshOSFull::handleConfigCommand(char* command, char* reply) {
+  if (memcmp(command, "set transport ", 14) == 0) {
+    char* arg = &command[14];
+    while (*arg == ' ') arg++;
+    if (strcmp(arg, "ble") == 0) prefs.transport = 0;
+    else if (strcmp(arg, "wifi") == 0) prefs.transport = 2;
+    else { strcpy(reply, "Err - transport must be ble or wifi"); return true; }
+    saveConfig();
+    sprintf(reply, "OK - transport %s, reboot to apply", prefs.transport == 2 ? "wifi" : "ble");
+    return true;
+  }
+  if (memcmp(command, "set wifi.ssid ", 14) == 0) {
+    char* arg = &command[14];
+    while (*arg == ' ') arg++;
+    StrHelper::strncpy(prefs.wifi_ssid, arg, sizeof(prefs.wifi_ssid));
+    saveConfig();
+    strcpy(reply, prefs.wifi_ssid[0] ? "OK" : "OK - ssid cleared (wired only)");
+    return true;
+  }
+  if (memcmp(command, "set wifi.pwd ", 13) == 0) {
+    char* arg = &command[13];
+    while (*arg == ' ') arg++;
+    StrHelper::strncpy(prefs.wifi_pwd, arg, sizeof(prefs.wifi_pwd));
+    saveConfig();
+    strcpy(reply, "OK");
+    return true;
+  }
+  return false;
+}
+
+void MeshOSFull::handleCommand(uint32_t sender_timestamp, char* command, char* reply) {
+  if (handleFilterCommand(command, reply)) return;
+  if (handleConfigCommand(command, reply)) return;
+  MyMesh::handleCommand(sender_timestamp, command, reply);
+}
