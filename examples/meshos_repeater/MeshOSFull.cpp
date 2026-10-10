@@ -412,3 +412,30 @@ String MeshOSFull::logJson(uint32_t since) {
   j += "]}";
   return j;
 }
+
+// /api/finder: repeaters/nodes heard directly, from the base neighbour list.
+// name / type / their_snr need an active scan, not reconstructed yet -> null.
+String MeshOSFull::finderJson() {
+  uint32_t now = getRTCClock()->getCurrentTime();
+  String j = "{\"n\":[";
+  bool first = true;
+#if MAX_NEIGHBOURS
+  const NeighbourInfo* nb = getNeighbours();
+  for (int i = 0; i < getMaxNeighbours(); i++) {
+    if (nb[i].heard_timestamp == 0) continue;
+    char id[16];
+    mesh::Utils::toHex(id, nb[i].id.pub_key, 6);
+    long age = (long)now - (long)nb[i].heard_timestamp;
+    if (!first) j += ',';
+    j += "{\"id\":\""; j += id; j += "\",";
+    j += "\"hash\":"; j += nb[i].id.pub_key[0]; j += ',';
+    j += "\"known\":8,\"name\":null,\"type\":2,";
+    j += "\"age\":"; j += age; j += ',';
+    j += "\"snr\":"; j += String(nb[i].snr / 4.0, 1); j += ',';
+    j += "\"their_snr\":null}";
+    first = false;
+  }
+#endif
+  j += "]}";
+  return j;
+}

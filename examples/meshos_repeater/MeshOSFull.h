@@ -79,5 +79,6 @@ public:
   uint32_t getBlePin() const { return prefs.ble_pin ? prefs.ble_pin : 123456; }
   String channelsJson();            // /api/channels: block state + heard stats
   String logJson(uint32_t since);   // /api/log: recent packets since a sequence number
+  String finderJson();              // /api/finder: directly-heard nodes
   void handleCommand(uint32_t sender_timestamp, char* command, char* reply) override;
 };

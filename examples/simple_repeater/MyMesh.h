@@ -188,6 +188,10 @@ public:
   const char* getBuildDate() override { return FIRMWARE_BUILD_DATE; }
   const char* getRole() override { return FIRMWARE_ROLE; }
   const char* getNodeName() { return _prefs.node_name; }
+#if MAX_NEIGHBOURS
+  const NeighbourInfo* getNeighbours() const { return neighbours; }
+  int getMaxNeighbours() const { return MAX_NEIGHBOURS; }
+#endif
   NodePrefs* getNodePrefs() {
     return &_prefs;
   }
