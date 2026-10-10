@@ -264,6 +264,7 @@ void setup() {
   if (the_mesh.getTransport() == 2) {
     web_iface.setStatusProvider(buildStatusJson);
     web_iface.setPrefsProvider(buildPrefsJson);
+    web_iface.setCmdHook(handleMeshOSCli);
     web_iface.begin("MeshOS Repeater", "");
     esp_net.beginSTA();   // join the saved WiFi (station) for observer/OTA/NTP
   } else {

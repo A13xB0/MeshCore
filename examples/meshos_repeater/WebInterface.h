@@ -22,6 +22,11 @@ public:
   void setStatusProvider(StatusProvider fn) { _status_fn = fn; }
   void setPrefsProvider(StatusProvider fn) { _prefs_fn = fn; }
 
+  // CLI extensions that live in main.cpp (fw.*, airlink.*, get net/ip). The web
+  // console and the Update tab POST to /api/cmd, so it must try these too.
+  typedef bool (*CmdHook)(char* cmd, char* reply);
+  void setCmdHook(CmdHook fn);
+
   // Bring up a WiFi AP named after the repeater and start the HTTP server.
   void begin(const char* ap_ssid, const char* ap_pwd);
   bool running() const { return _running; }
