@@ -109,8 +109,10 @@ bool MeshOSLite::unblockChannel(uint8_t hash) {
 }
 
 bool MeshOSLite::addEntry(const uint8_t* id, uint8_t len) {
-  if (len < 1 || len > LITE_MAX_ENTRY_LEN) return false;
-  if (findEntry(id, len) >= 0) return true;            // already blocked
+  if ((uint8_t)(len - 1) >= LITE_MAX_ENTRY_LEN) return false;    // len must be 1..3
+  for (uint8_t i = 0; i != LITE_MAX_ENTRIES && i < lite.entry_n; i++) {
+    if (lite.entries[i].len == len && memcmp(lite.entries[i].id, id, len) == 0) return true;  // already blocked
+  }
   if (lite.entry_n >= LITE_MAX_ENTRIES) return false;  // list full
   LiteEntry* e = &lite.entries[lite.entry_n];
   memset(e, 0, sizeof(*e));
