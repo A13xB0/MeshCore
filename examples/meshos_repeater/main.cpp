@@ -380,6 +380,7 @@ void loop() {
   esp_net.loop();
   observer.loop();
   airlink.loop();
+  self_update.loop();
 #endif
   sensors.loop();
 #ifdef DISPLAY_CLASS

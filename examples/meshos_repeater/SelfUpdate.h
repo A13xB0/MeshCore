@@ -61,6 +61,10 @@ public:
   // site updater from fighting it (matches "a manual upload (/update) is in progress")
   void setManualUpload(bool on) { _manual_upload = on; }
 
+  // call from the main loop: runs an unattended manifest check a few times a day
+  // (background task; only sets availability, never installs on its own)
+  void loop();
+
 private:
   struct Manifest {
     bool   ok = false;
@@ -92,9 +96,14 @@ private:
   char   _app_sha[65] = {};
   mbedtls_sha256_context _app_ctx;
 
+  unsigned long _next_auto = 30000;   // first unattended check ~30 s after boot
+  bool   _checking = false;
+
   bool   fetchManifest(Manifest& out);
+  void   runCheck();                  // manifest fetch + version compare (no install)
   bool   startDownloadTask();
   static void downloadTask(void* arg);
+  static void checkTask(void* arg);
   void   runDownload();
   void   fail(const char* why);
   static const char* stateName(State s);

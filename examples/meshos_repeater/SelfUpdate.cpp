@@ -323,6 +323,41 @@ bool SelfUpdate::writeAppChunk(const uint8_t* data, size_t len, char* reply) {
   return true;
 }
 
+// --------------------------------------------------------------------------
+// Unattended periodic check (a few times a day) - availability only
+// --------------------------------------------------------------------------
+void SelfUpdate::loop() {
+  if (_manual_upload || _state == DOWNLOADING || _app_active || _checking) return;
+  if (!WiFi.isConnected()) return;
+  if ((long)(millis() - _next_auto) < 0) return;
+  _next_auto = millis() + 8UL * 3600000UL;    // ~3x/day
+  _checking = true;
+  if (xTaskCreate(&SelfUpdate::checkTask, "fw_chk", 10240, this, 1, NULL) != pdPASS) _checking = false;
+}
+
+void SelfUpdate::checkTask(void* arg) {
+  SelfUpdate* self = (SelfUpdate*) arg;
+  self->runCheck();
+  self->_checking = false;
+  vTaskDelete(NULL);
+}
+
+void SelfUpdate::runCheck() {
+  _check_failed = false; _err[0] = 0;
+  if (fetchManifest(_latest)) {
+    _checked = (long)(_mesh.getRTCClock() ? _mesh.getRTCClock()->getCurrentTime() : 0);
+    bool newer = strcmp(_latest.version, FIRMWARE_VERSION + 1) != 0;
+    _avail = newer;
+    if (_state == IDLE || _state == AVAILABLE) _state = newer ? AVAILABLE : IDLE;
+    Serial.printf("FW: running %s, site has %s (%lu bytes) -> %s\n",
+                  FIRMWARE_VERSION, _latest.version, (unsigned long)_latest.size,
+                  newer ? "UPDATE AVAILABLE" : "up to date");
+  } else {
+    _check_failed = true;
+    Serial.printf("FW: check failed: %s\n", _err);
+  }
+}
+
 String SelfUpdate::statusJson() {
   int pct = (_total > 0) ? (int)((uint64_t)_done * 100 / _total) : 0;
   char buf[360];

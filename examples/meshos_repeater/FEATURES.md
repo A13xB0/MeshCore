@@ -79,7 +79,11 @@ Three install paths:
 - **Direct install**: `fw.install <url> <sha256> [size]`.
 - **App-streamed**: `fw.begin <size> <sha256>` / `fw.ack` / `fw.commit` / `fw.abort`
   (the app pushes chunks over the companion link; commit verifies + reboots).
-- Manual `.bin` upload still at `/update` (ElegantOTA), independent of this module.
+- Manual `.bin` upload at `/update`: `GET /update/identity` + multipart `POST
+  /update` streamed into the OTA slot, then reboot (ElegantOTA-style, in
+  `WebInterface`).
+- Unattended check a few times a day (`SelfUpdate::loop`, background task): sets
+  availability only, never installs on its own.
 Progress is reported through the `fw` object in `/api/status`.
 
 ## 7. WiFi station + NTP  — reconstructed (`EspNet.h/.cpp`)
@@ -123,6 +127,13 @@ ble/wifi/eth/ap/mqtt/radio/air/pkts/fw/airlink/…), tying the subsystems togeth
   full status JSON, transport switching, WiFi-station + NTP, BLE transport, trace,
   finder, graph, observer (MQTT), AirLink, and **self-update (OTA)** + setup wizard
   backend — every major repeater subsystem now has a source reconstruction.
-- Open gaps (all flagged in code): AirLink's per-connection BLE link-parameter
-  negotiation; the companion-prefs WiFi migration source; and the status fields
-  noted in §11 (airtime windows / signal / bond count).
+- Endpoint audit: every command and `/api/*` call the extracted web UI issues is
+  handled (MeshOS verbs in our source, base radio/advert/identity settings via the
+  inherited `CommonCLI`; manual-OTA `/update/identity` + `POST /update` served).
+- Open gaps, all cosmetic/behavioural and flagged in code:
+  - AirLink per-connection BLE link-parameter negotiation (5/12 AIRLINK strings),
+    and its companion probe answered with a text banner vs the `meshos-rpt/1` JSON.
+  - The companion-prefs WiFi-migration *source* (a different firmware's layout).
+  - `/meshos_names.bin` persistent node-name cache (finder/graph work without it).
+  - Observer `meshos/chat/control` messages are logged, not acted on.
+  - Status fields not tracked (§11): rolling airtime windows, signal, bond count.
