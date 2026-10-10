@@ -23,9 +23,9 @@ int MeshOSFull::matchEntry(const mesh::Packet* packet) const {
   if (prefs.entry_n == 0) return -1;
   uint8_t type = packet->getPayloadType();
   if ((type != PAYLOAD_TYPE_GRP_TXT && type != PAYLOAD_TYPE_GRP_DATA) || !packet->isRouteFlood()) return -1;
-  uint8_t hops = packet->path_len & 63;
-  uint8_t hash_size = (packet->path_len >> 6) + 1;
-  if (hops == 0 || hash_size > MESHOS_MAX_ENTRY_LEN) return -1;
+  uint8_t pl = packet->path_len;                 // low byte: hops + hash size
+  uint8_t hash_size = (pl >> 6) + 1;
+  if ((pl & 63) == 0 || hash_size > MESHOS_MAX_ENTRY_LEN) return -1;
   for (uint8_t i = 0; i != MESHOS_MAX_ENTRIES && i < prefs.entry_n; i++) {
     uint8_t n = prefs.entries[i].len;
     if ((uint8_t)(n - 1) >= MESHOS_MAX_ENTRY_LEN) continue;
