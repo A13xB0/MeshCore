@@ -307,6 +307,7 @@ bool MeshOSFull::handleConfigCommand(char* command, char* reply) {
 void MeshOSFull::handleCommand(uint32_t sender_timestamp, char* command, char* reply) {
   if (handleFilterCommand(command, reply)) return;
   if (handleConfigCommand(command, reply)) return;
+  if (handleTraceCommand(command, reply)) return;
   MyMesh::handleCommand(sender_timestamp, command, reply);
 }
 
@@ -548,6 +549,55 @@ String MeshOSFull::graphJson() {
     j += ",[0,\""; j += id; j += "\",8,1,1,"; j += nb[i].snr; j += ','; j += nb[i].snr; j += ','; j += age; j += ']';
   }
 #endif
+  j += "]}";
+  return j;
+}
+
+// "trace H0,H1,..." : send a trace packet along the given hop hashes.
+bool MeshOSFull::handleTraceCommand(char* command, char* reply) {
+  if (memcmp(command, "trace ", 6) != 0) return false;
+  uint8_t hops[16];
+  uint8_t n = 0;
+  const char* p = command + 6;
+  while (*p && n < 16) {
+    while (*p == ' ' || *p == ',') p++;
+    int hi = hexNibble(p[0]);
+    int lo = p[0] ? hexNibble(p[1]) : -1;
+    if (hi < 0 || lo < 0) break;
+    hops[n++] = (hi << 4) | lo;
+    p += 2;
+  }
+  if (n == 0) { strcpy(reply, "Err - enter at least one hop hash"); return true; }
+
+  mesh::Packet* pkt = createTrace(++_trace_tag, 0, 0);
+  if (!pkt) { strcpy(reply, "Err - packet pool empty"); return true; }
+  _trace_active = true;
+  _trace_done = false;
+  sendDirect(pkt, hops, n);
+  strcpy(reply, "OK");
+  return true;
+}
+
+void MeshOSFull::onTraceRecv(mesh::Packet* packet, uint32_t tag, uint32_t auth_code, uint8_t flags,
+                             const uint8_t* path_snrs, const uint8_t* path_hashes, uint8_t path_len) {
+  MyMesh::onTraceRecv(packet, tag, auth_code, flags, path_snrs, path_hashes, path_len);
+  if (_trace_active && tag == _trace_tag) {
+    _trace_len = path_len > sizeof(_trace_hashes) ? sizeof(_trace_hashes) : path_len;
+    memcpy(_trace_hashes, path_hashes, _trace_len);
+    memcpy(_trace_snrs, path_snrs, _trace_len);
+    _trace_flags = flags;
+    _trace_done = true;
+  }
+}
+
+String MeshOSFull::traceJson() {
+  if (!_trace_done) return "{\"ok\":false}";
+  _trace_active = false;
+  String j = "{\"ok\":true,\"flags\":"; j += _trace_flags; j += ",\"hops\":[";
+  for (uint8_t i = 0; i < _trace_len; i++) {
+    if (i) j += ',';
+    j += '['; j += _trace_hashes[i]; j += ','; j += (int)(int8_t)_trace_snrs[i]; j += ']';
+  }
   j += "]}";
   return j;
 }

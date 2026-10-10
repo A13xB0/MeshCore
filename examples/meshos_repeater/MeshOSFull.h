@@ -59,6 +59,12 @@ class MeshOSFull : public MyMesh {
   uint32_t _obs_dropped = 0;
   void observerCaptureRx(mesh::Packet* pkt);
 
+  // pending over-the-air trace for the web Trace tab
+  uint32_t _trace_tag = 0;
+  bool _trace_active = false, _trace_done = false;
+  uint8_t _trace_len = 0, _trace_flags = 0;
+  uint8_t _trace_hashes[16] = {}, _trace_snrs[16] = {};
+
   void saveConfig();            // write prefs to /meshos_net.json
   void saveFilter() { saveConfig(); }
 
@@ -77,6 +83,8 @@ protected:
   }
   void logRx(mesh::Packet* pkt, int len, float score) override;
   void logTx(mesh::Packet* pkt, int len) override;
+  void onTraceRecv(mesh::Packet* packet, uint32_t tag, uint32_t auth_code, uint8_t flags,
+                   const uint8_t* path_snrs, const uint8_t* path_hashes, uint8_t path_len) override;
 
 public:
   MeshOSFull(mesh::MainBoard& board, mesh::Radio& radio, mesh::MillisecondClock& ms, mesh::RNG& rng, mesh::RTCClock& rtc, mesh::MeshTables& tables)
@@ -93,5 +101,7 @@ public:
   bool observerNextRx(String& out); // next heard-packet payload for the /rx topic, or false
   String regionsJson();             // /api/regions: scoped-flood region tree
   String graphJson();               // /api/graph: this repeater + directly-heard nodes
+  bool handleTraceCommand(char* command, char* reply);  // trace <hops>
+  String traceJson();               // /api/trace: last trace result, or {ok:false}
   void handleCommand(uint32_t sender_timestamp, char* command, char* reply) override;
 };
