@@ -66,6 +66,20 @@ void WebInterface::begin(const char* ap_ssid, const char* ap_pwd) {
     req->send(200, "application/json", "{\"transport\":\"" + runCommand(*mesh, "get transport").substring(2) + "\"}");
   });
 
+  // Endpoints whose backends (packet log, neighbour scan, regions, trace, graph)
+  // are not reconstructed yet - answered with valid empty payloads so the SPA loads.
+  server->on("/api/hello", HTTP_GET, [mesh](AsyncWebServerRequest* req) {
+    req->send(200, "application/json", statusJson(*mesh));
+  });
+  for (const char* path : { "/api/log", "/api/finder", "/api/regions", "/api/trace" }) {
+    server->on(path, HTTP_GET, [](AsyncWebServerRequest* req) {
+      req->send(200, "application/json", "{}");
+    });
+  }
+  server->on("/api/graph", HTTP_GET, [](AsyncWebServerRequest* req) {
+    req->send(200, "application/json", "{\"nodes\":[],\"edges\":[]}");
+  });
+
   server->begin();
   _running = true;
 }
