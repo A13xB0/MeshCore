@@ -5,6 +5,29 @@ reconstruction covers everything. Taken from `MeshOS-Repeater-HeltecV4-v1.6.1`
 (ESP32-S3), built on MeshCore v1.17.1 (d929643). The nRF52 **Repeater Lite**
 build has only the spam filter; everything else here is full-repeater only.
 
+## Building for a device
+
+One branch, one source tree, two feature sets selected by chip family:
+
+| MCU family        | Feature set | Source                        |
+|-------------------|-------------|-------------------------------|
+| ESP32 / ESP32-S3  | **full**    | `examples/meshos_repeater/`   |
+| nRF52 / RP2040    | **lite**    | `examples/meshos_repeater_lite/` |
+
+The build matrix lives in `variants/meshos/platformio.ini` (shared source-file
+snippets + one env per board). Build a device with, e.g.:
+
+```
+pio run -e Heltec_v3_meshos_full       # ESP32 board  -> full repeater
+pio run -e ThinkNode_M1_meshos_lite    # nRF52 board  -> lite repeater
+pio run -e PicoW_meshos_lite           # RP2040 board -> lite repeater
+```
+
+Envs: `Heltec_v2/v3/v4/E213/E290`, `ThinkNode_M7`, `Station_G2`, `LilyGo_TDeck`
+(full); `ThinkNode_M1/M3`, `GAT562_Mesh_EVB_Pro`, `GAT562_30S_Mesh_Kit`,
+`WioTrackerL1`, `KeepteenLT1`, `PicoW` (lite). To add a board, copy a block in
+`variants/meshos/platformio.ini` and point it at that board's base section.
+
 Stock MeshCore commands (`set name/lat/lon/radio/tx/advert.interval/flood.*/`
 `repeat/rxdelay/txdelay/agc.reset.interval/int.thresh/multi.acks/loop.detect/`
 `path.hash.mode/cad/af/adc.multiplier/owner.info/guest.password/radio.rxgain/`
