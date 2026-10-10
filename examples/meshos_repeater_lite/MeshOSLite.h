@@ -58,7 +58,13 @@ class MeshOSLite : public MyMesh {
   void saveLite() {
     if (_lite_fs) {
       _lite_fs->remove(MESHOS_LITE_FILE);
+#if defined(NRF52_PLATFORM) || defined(STM32_PLATFORM)
       File file = _lite_fs->open(MESHOS_LITE_FILE, FILE_O_WRITE);
+#elif defined(RP2040_PLATFORM)
+      File file = _lite_fs->open(MESHOS_LITE_FILE, "w");
+#else
+      File file = _lite_fs->open(MESHOS_LITE_FILE, "w", true);
+#endif
       if (file) {
         lite.saveSerial(file);
         file.close();
