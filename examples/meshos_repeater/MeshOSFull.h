@@ -11,6 +11,8 @@
 #define PUBLIC_CHANNEL_HASH   0x11
 #define MESHOS_NET_FILE       "/meshos_net.json"
 
+class AbstractBridge;   // the AirLink bridge (ESP32 only); hooked from logRx
+
 class MeshOSFull : public MyMesh {
   MeshOSPrefs prefs;                 // sits at the base-class end -> blocked_n at +0x90
   uint8_t chan_heard[256] = {};
@@ -18,6 +20,7 @@ class MeshOSFull : public MyMesh {
   uint32_t not_repeated = 0;
   uint32_t entry_hits[MESHOS_MAX_ENTRIES] = {};
   FILESYSTEM* _net_fs = NULL;
+  AbstractBridge* _airlink = NULL;   // set by main.cpp when the AirLink bridge runs
 
   // The shipped binary keeps isChannelBlocked a separate function because its integrated
   // CLI/web handler calls it from several places. Until that handler is reconstructed, noinline
@@ -92,6 +95,16 @@ public:
 
   void beginFull(FILESYSTEM* fs);
   uint8_t getTransport() const { return prefs.transport; }
+  // accessors for the AirLink bridge (it injects phone->LoRa packets via the mgr)
+  mesh::PacketManager* getPacketManager() { return _mgr; }
+  NodePrefs* nodePrefs() { return getNodePrefs(); }
+  MeshOSPrefs& meshosPrefs() { return prefs; }
+  bool airlinkEnabled() const { return prefs.airlink; }
+  bool airlinkPublic() const { return prefs.airlink_pub; }
+  const char* airlinkChannels() const { return prefs.airlink_ch; }
+  // is this packet's entry repeater (first path hop) blocked by the spam filter?
+  bool isEntryBlockedPkt(const mesh::Packet* pkt) const { return matchEntry(pkt) >= 0; }
+  void setAirLink(AbstractBridge* b) { _airlink = b; }
   uint32_t getBlePin() const { return prefs.ble_pin ? prefs.ble_pin : 123456; }
   String channelsJson();            // /api/channels: block state + heard stats
   String logJson(uint32_t since);   // /api/log: recent packets since a sequence number

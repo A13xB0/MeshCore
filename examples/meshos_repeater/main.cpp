@@ -5,6 +5,7 @@
 #ifdef ESP32
 #include "WebInterface.h"
 #include "Observer.h"
+#include "AirLink.h"
 #include <helpers/esp32/SerialBLEInterface.h>
 #endif
 
@@ -26,6 +27,7 @@ MeshOSFull the_mesh(board, radio_driver, *new ArduinoMillis(), fast_rng, rtc_clo
 static WebInterface web_iface(the_mesh);
 static SerialBLEInterface ble_iface;
 static Observer observer(the_mesh);
+static AirLink airlink(the_mesh, the_mesh.getNodePrefs(), the_mesh.getPacketManager(), the_mesh.getRTCClock());
 static char ble_cmd[180];
 static char ble_reply[180];
 #endif
@@ -33,6 +35,18 @@ static char ble_reply[180];
 void halt() {
   while (1) ;
 }
+
+#ifdef ESP32
+// airlink.status needs the bridge instance (its live counters), so it is answered
+// here rather than in MeshOSFull. Returns true if it consumed the command.
+static bool handleAirlinkCli(const char* cmd, char* reply) {
+  if (strcmp(cmd, "airlink.status") == 0) {
+    strcpy(reply, airlink.statusLine().c_str());
+    return true;
+  }
+  return false;
+}
+#endif
 
 static char command[160];
 #ifdef ETHERNET_ENABLED
@@ -126,6 +140,12 @@ void setup() {
     ble_iface.begin("MeshCore-", the_mesh.getNodePrefs()->node_name, the_mesh.getBlePin());
     ble_iface.enable();
   }
+  // AirLink bridge (phones <-> LoRa). Works in both Bluetooth and WiFi mode, on
+  // boards with PSRAM; shares the one BLE stack with the CLI interface above.
+  if (the_mesh.airlinkEnabled()) {
+    airlink.begin();
+    the_mesh.setAirLink(&airlink);
+  }
 #endif
 
 #ifdef DISPLAY_CLASS
@@ -165,6 +185,9 @@ void loop() {
     command[len - 1] = 0;  // replace newline with C string null terminator
     char reply[160];
     reply[0] = 0;
+#ifdef ESP32
+    if (!handleAirlinkCli(command, reply))
+#endif
 #ifdef ETHERNET_ENABLED
     if (!ethernet_handle_command(command, reply)) {
       the_mesh.handleCommand(0, command, reply);
@@ -214,7 +237,8 @@ void loop() {
     if (len > 0) {
       ble_cmd[len] = 0;
       ble_reply[0] = 0;
-      the_mesh.handleCommand(0, ble_cmd, ble_reply);
+      if (!handleAirlinkCli(ble_cmd, ble_reply))
+        the_mesh.handleCommand(0, ble_cmd, ble_reply);
       if (ble_reply[0]) ble_iface.writeFrame((const uint8_t*) ble_reply, strlen(ble_reply));
     }
   }
@@ -222,6 +246,7 @@ void loop() {
   the_mesh.loop();
 #ifdef ESP32
   observer.loop();
+  airlink.loop();
 #endif
   sensors.loop();
 #ifdef DISPLAY_CLASS

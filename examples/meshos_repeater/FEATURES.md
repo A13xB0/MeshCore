@@ -47,15 +47,26 @@ The repeater can run its admin/web link over BLE or WiFi.
 - `set ble.pin` (6 digits)
 - Applies after reboot.
 
-## 4. AirLink bridge
+## 4. AirLink bridge  — reconstructed (`AirLink.h/.cpp`)
 Bridges the MeshOS app's phone-to-phone mesh (AirLink, over BLE) to LoRa, so DMs,
 their acks and selected channels cross both ways, end-to-end encrypted. Needs
 PSRAM; up to 3 phones.
 - `set airlink` (on/off), `set airlink.channels`, `set airlink.public`
+- `airlink.status` prints the live status line.
+- Reconstructed as a `BridgeBase` hooked from `MeshOSFull::logRx`: a PSRAM-backed
+  multi-connection BLE companion transport (`PhoneLink`) carries length-prefixed
+  mesh Packets; packets are filtered (DM/ack/path always, group text/data only on
+  a selected channel, nothing from a blocked entry repeater), de-duplicated and
+  echo-suppressed, injected to LoRa via `queueInbound`, and the lifetime counters
+  match the shipped status/stats strings. 7 of the 12 AIRLINK log strings match
+  verbatim; the open gap is the per-connection BLE link-parameter negotiation
+  (`conn %u link ... request failed`), left as interval/timeout placeholders.
 
-## 5. Observer (telemetry)  — HTTP, not MQTT
-Off by default. When on, uploads every heard packet plus a signed heartbeat to the
-MeshOS observer at meshcore.co.uk over HTTP. Separate from NTP and update checks.
+## 5. Observer (telemetry)  — reconstructed (`Observer.h/.cpp`), MQTT
+Off by default. When on, connects to the MeshOS observer's MQTT broker (bare IP
+`167.99.90.25:1883`, shared device credentials) and publishes every heard packet
+to `meshos/rpt/<id>/rx` plus a signed heartbeat to `.../status`; subscribes to
+`meshos/chat/control`. Separate from NTP and update checks.
 - `set observer` (on/off), `get observer`
 
 ## 6. Self-update (OTA)
@@ -81,7 +92,13 @@ First-boot guided setup (`setup.done`, `setup.reset`), re-runnable from Settings
 - MeshOS logo and banner; `ver.meshos` reports the MeshOS version.
 
 ## Reconstruction status
-- Spam filter: reconstructed on nRF52 (branch `meshos-repeater-lite`).
+- Spam filter: reconstructed on nRF52 (branch `meshos-repeater-lite`) and in the
+  full ESP32 build (`MeshOSFull`).
 - Web assets: extracted byte-exact (`web/`).
-- Everything else (web server + API, transport, AirLink, observer, OTA, finder,
-  graph, wizard): catalogued here, not yet reconstructed as source.
+- Reconstructed as source (full ESP32 build compiles, flash 29.4%): config struct,
+  command dispatch, config read/write, web server + all `/api` tab backends,
+  transport switching, BLE transport, trace, finder, graph, observer (MQTT) and
+  **AirLink** — AirLink was the last remaining subsystem.
+- Open gaps: OTA self-update and the setup wizard backend are catalogued here but
+  not yet reconstructed as source; AirLink's per-connection BLE link-parameter
+  negotiation is stubbed (see §4).

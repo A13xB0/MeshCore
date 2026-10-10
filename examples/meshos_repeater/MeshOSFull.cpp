@@ -1,4 +1,5 @@
 #include "MeshOSFull.h"
+#include "helpers/AbstractBridge.h"
 
 static const char* meshos_hex_chars = "0123456789ABCDEF";
 
@@ -386,6 +387,8 @@ void MeshOSFull::logRx(mesh::Packet* pkt, int len, float score) {
   }
   recordPkt(pkt, len, 0, fl);
   if (prefs.observer) observerCaptureRx(pkt);
+  // AirLink: relay qualifying LoRa traffic we heard to the connected phones
+  if (_airlink) _airlink->sendPacket(pkt);
 }
 
 void MeshOSFull::logTx(mesh::Packet* pkt, int len) {
