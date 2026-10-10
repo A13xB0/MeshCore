@@ -16,6 +16,10 @@ built on MeshCore v1.17.1 / commit d929643).
 `index.html` is the MeshOS dashboard: a single-page app with the overview,
 channels, network, packets, settings, update, admin and console tabs. The MeshOS
 logo is an inline base64 PNG inside it, so there is no separate image file.
+`logo.png` (240x160) is the MeshOS logo. It ships **inline** as a base64 PNG
+inside `index.html`, so it is embedded as part of that file, not separately; it
+is kept here only so the image is viewable on its own.
+
 `update.html` is the stock [ElegantOTA](https://github.com/ayushsharma82/ElegantOTA)
 page and is unmodified.
 
