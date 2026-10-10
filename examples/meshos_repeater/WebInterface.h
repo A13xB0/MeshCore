@@ -20,6 +20,7 @@ public:
   // visible) and handed to the server through this provider.
   typedef String (*StatusProvider)();
   void setStatusProvider(StatusProvider fn) { _status_fn = fn; }
+  void setPrefsProvider(StatusProvider fn) { _prefs_fn = fn; }
 
   // Bring up a WiFi AP named after the repeater and start the HTTP server.
   void begin(const char* ap_ssid, const char* ap_pwd);
@@ -27,6 +28,7 @@ public:
 
 private:
   StatusProvider _status_fn = NULL;
+  StatusProvider _prefs_fn = NULL;
 };
 
 #endif

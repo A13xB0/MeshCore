@@ -105,6 +105,39 @@ static String buildStatusJson() {
   j += "\"airlink\":{" + airlink.statsJson() + "}}";
   return j;
 }
+
+// /api/prefs: every editable setting, matching the recovered prefs schema. Drives
+// the Settings tab and the first-run wizard's radio/network fields.
+static String buildPrefsJson() {
+  NodePrefs* p = the_mesh.getNodePrefs();
+  MeshOSPrefs& mp = the_mesh.meshosPrefs();
+  const char* tr = (mp.transport == 2) ? "wifi" : "ble";
+
+  char a[520];
+  snprintf(a, sizeof(a),
+    "{\"name\":\"%s\",\"lat\":%.6f,\"lon\":%.6f,\"owner\":\"%s\",\"guest\":\"%s\","
+    "\"freq\":%.4f,\"bw\":%.2f,\"sf\":%d,\"cr\":%d,\"tx\":%d,\"rxgain\":%d,\"repeat\":%d,"
+    "\"adv_int\":%d,\"fadv_int\":%d,\"fmax\":%d,\"fmax_uns\":%d,\"fmax_adv\":%d,\"loop\":%d,"
+    "\"hash_mode\":%d,\"af\":%.3f,\"rxdelay\":%.3f,\"txdelay\":%.3f,\"dtxdelay\":%.3f,",
+    p->node_name, p->node_lat, p->node_lon, p->owner_info, p->guest_password,
+    p->freq, p->bw, p->sf, p->cr, p->tx_power_dbm, p->rx_boosted_gain, p->disable_fwd ? 0 : 1,
+    p->advert_interval, p->flood_advert_interval, p->flood_max, p->flood_max_unscoped,
+    p->flood_max_advert, p->loop_detect, p->path_hash_mode,
+    p->airtime_factor, p->rx_delay_base, p->tx_delay_factor, p->direct_tx_delay_factor);
+
+  char b[400];
+  snprintf(b, sizeof(b),
+    "\"int_thresh\":%d,\"cad\":%d,\"agc\":%d,\"multi_acks\":%d,\"adc_mult\":%.4f,"
+    "\"transport\":\"%s\",\"ssid\":\"%s\",\"observer\":%d,\"ble_pin\":\"%06lu\",\"hw\":\"%s\","
+    "\"fem_rx_ctl\":false,\"fem_rx\":%d,\"fem_tx_ctl\":false,\"fem_tx\":%d,"
+    "\"airlink\":%d,\"airlink_pub\":%d,\"airlink_ch\":\"%s\"}",
+    p->interference_threshold, p->cad_enabled, p->agc_reset_interval, p->multi_acks, p->adc_multiplier,
+    tr, mp.wifi_ssid, mp.observer, (unsigned long)(mp.ble_pin ? mp.ble_pin : 123456), "Heltec V4 OLED",
+    p->radio_fem_rxgain, p->radio_fem_txgain,
+    mp.airlink, mp.airlink_pub, mp.airlink_ch);
+
+  return String(a) + b;
+}
 #endif
 
 #ifdef ESP32
@@ -230,6 +263,7 @@ void setup() {
 #ifdef ESP32
   if (the_mesh.getTransport() == 2) {
     web_iface.setStatusProvider(buildStatusJson);
+    web_iface.setPrefsProvider(buildPrefsJson);
     web_iface.begin("MeshOS Repeater", "");
     esp_net.beginSTA();   // join the saved WiFi (station) for observer/OTA/NTP
   } else {

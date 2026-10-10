@@ -63,8 +63,10 @@ void WebInterface::begin(const char* ap_ssid, const char* ap_pwd) {
     req->send(200, "application/json", mesh->channelsJson());
   });
 
-  server->on("/api/prefs", HTTP_GET, [mesh](AsyncWebServerRequest* req) {
-    req->send(200, "application/json", "{\"transport\":\"" + runCommand(*mesh, "get transport").substring(2) + "\"}");
+  StatusProvider prefs_fn = _prefs_fn;
+  server->on("/api/prefs", HTTP_GET, [mesh, prefs_fn](AsyncWebServerRequest* req) {
+    req->send(200, "application/json", prefs_fn ? prefs_fn()
+              : ("{\"transport\":\"" + runCommand(*mesh, "get transport").substring(2) + "\"}"));
   });
 
   // Endpoints whose backends (packet log, neighbour scan, regions, trace, graph)
