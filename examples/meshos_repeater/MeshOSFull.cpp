@@ -10,6 +10,13 @@ static void toHex(const uint8_t* src, uint8_t len, char* dest) {
   *dest = 0;
 }
 
+static uint8_t parseOnOff(const char* arg, uint8_t current) {
+  while (*arg == ' ') arg++;
+  if (strcmp(arg, "on") == 0 || strcmp(arg, "1") == 0) return 1;
+  if (strcmp(arg, "off") == 0 || strcmp(arg, "0") == 0) return 0;
+  return current;
+}
+
 static int hexNibble(char c) {
   if (c >= '0' && c <= '9') return c - '0';
   if (c >= 'a' && c <= 'f') return c - 'a' + 10;
@@ -236,6 +243,62 @@ bool MeshOSFull::handleConfigCommand(char* command, char* reply) {
     StrHelper::strncpy(prefs.wifi_pwd, arg, sizeof(prefs.wifi_pwd));
     saveConfig();
     strcpy(reply, "OK");
+    return true;
+  }
+  if (memcmp(command, "set web.pwd ", 12) == 0) {
+    char* arg = &command[12];
+    while (*arg == ' ') arg++;
+    StrHelper::strncpy(prefs.web_pwd, arg, sizeof(prefs.web_pwd));
+    saveConfig();
+    strcpy(reply, "OK");
+    return true;
+  }
+  if (memcmp(command, "set ble.pin ", 12) == 0) {
+    prefs.ble_pin = atoi(&command[12]);
+    saveConfig();
+    sprintf(reply, "OK - pin %06u, reboot to apply", prefs.ble_pin);
+    return true;
+  }
+  if (memcmp(command, "set observer ", 13) == 0) {
+    prefs.observer = parseOnOff(&command[13], prefs.observer);
+    saveConfig();
+    sprintf(reply, "OK - observer %s", prefs.observer ? "on" : "off");
+    return true;
+  }
+  if (memcmp(command, "set airlink.public ", 19) == 0) {
+    prefs.airlink_pub = parseOnOff(&command[19], prefs.airlink_pub);
+    saveConfig();
+    strcpy(reply, "OK");
+    return true;
+  }
+  if (memcmp(command, "set airlink.channels ", 21) == 0) {
+    char* arg = &command[21];
+    while (*arg == ' ') arg++;
+    StrHelper::strncpy(prefs.airlink_ch, arg, sizeof(prefs.airlink_ch));
+    saveConfig();
+    strcpy(reply, "OK");
+    return true;
+  }
+  if (memcmp(command, "set airlink ", 12) == 0) {
+    prefs.airlink = parseOnOff(&command[12], prefs.airlink);
+    saveConfig();
+    sprintf(reply, "OK - airlink %s, reboot to apply", prefs.airlink ? "on" : "off");
+    return true;
+  }
+  if (strcmp(command, "get transport") == 0) {
+    sprintf(reply, "> %s", prefs.transport == 2 ? "wifi" : "ble");
+    return true;
+  }
+  if (strcmp(command, "get wifi.ssid") == 0) {
+    sprintf(reply, "> %s", prefs.wifi_ssid);
+    return true;
+  }
+  if (strcmp(command, "get observer") == 0) {
+    sprintf(reply, "> %s", prefs.observer ? "on" : "off");
+    return true;
+  }
+  if (strcmp(command, "get airlink") == 0) {
+    sprintf(reply, "> %s", prefs.airlink ? "on" : "off");
     return true;
   }
   return false;
