@@ -54,5 +54,6 @@ public:
      : MyMesh(board, radio, ms, rng, rtc, tables) { }
 
   void beginFull(FILESYSTEM* fs);
+  uint8_t getTransport() const { return prefs.transport; }
   void handleCommand(uint32_t sender_timestamp, char* command, char* reply) override;
 };

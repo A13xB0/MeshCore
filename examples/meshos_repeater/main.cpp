@@ -2,6 +2,9 @@
 #include <Mesh.h>
 
 #include "MeshOSFull.h"
+#ifdef ESP32
+#include "WebInterface.h"
+#endif
 
 #ifdef DISPLAY_CLASS
   #include "UITask.h"
@@ -17,6 +20,9 @@ StdRNG fast_rng;
 SimpleMeshTables tables;
 
 MeshOSFull the_mesh(board, radio_driver, *new ArduinoMillis(), fast_rng, rtc_clock, tables);
+#ifdef ESP32
+static WebInterface web_iface(the_mesh);
+#endif
 
 void halt() {
   while (1) ;
@@ -106,6 +112,11 @@ void setup() {
 
   the_mesh.begin(fs);
   the_mesh.beginFull(fs);
+#ifdef ESP32
+  if (the_mesh.getTransport() == 2) {
+    web_iface.begin("MeshOS Repeater", "");
+  }
+#endif
 
 #ifdef DISPLAY_CLASS
   ui_task.begin(the_mesh.getNodePrefs(), FIRMWARE_BUILD_DATE, FIRMWARE_VERSION);
