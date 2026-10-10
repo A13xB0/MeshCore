@@ -27,13 +27,16 @@ static bool parseChannelHash(const char* arg, uint8_t& hash) {
     return true;
   }
   if (arg[0] == '0' && (arg[1] | 0x20) == 'x') arg += 2;
-  int len = strlen(arg);
-  if (len < 1 || len > 2) return false;
+  size_t len = strlen(arg);
+  if ((unsigned)(len - 1) > 1) return false;   // one or two hex digits (one byte)
   uint8_t v = 0;
-  for (int i = 0; i < len; i++) {
-    int n = hexNibble(arg[i]);
-    if (n < 0) return false;
-    v = (v << 4) | n;
+  for (size_t i = 0; i < len; i++) {
+    uint8_t c = arg[i];
+    v <<= 4;
+    if ((uint8_t)(c - '0') < 10)      v |= c - '0';
+    else if ((uint8_t)(c - 'a') < 6)  v |= c - 'a' + 10;
+    else if ((uint8_t)(c - 'A') < 6)  v |= c - 'A' + 10;
+    else return false;
   }
   hash = v;
   return true;
