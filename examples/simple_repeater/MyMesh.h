@@ -71,7 +71,7 @@ struct NeighbourInfo {
 };
 
 #ifndef FIRMWARE_BUILD_DATE
-  #define FIRMWARE_BUILD_DATE   "14 Aug 2026"
+  #define FIRMWARE_BUILD_DATE   "6 Oct 2026"
 #endif
 
 #ifndef FIRMWARE_VERSION
