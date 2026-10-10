@@ -42,6 +42,7 @@ void halt() {
 
 #ifdef ESP32
 #include <WiFi.h>
+#include <esp_gap_ble_api.h>
 static String jbool(bool b) { return b ? "true" : "false"; }
 
 // Assemble the full /api/status JSON the web UI consumes. Lives here (not in
@@ -78,11 +79,11 @@ static String buildStatusJson() {
 
   char net[400];
   snprintf(net, sizeof(net),
-    "\"ble\":{\"on\":%s,\"connected\":false,\"bonds\":0},"
+    "\"ble\":{\"on\":%s,\"connected\":false,\"bonds\":%d},"
     "\"wifi\":{\"ssid\":\"%s\",\"up\":%s,\"ip\":\"%s\",\"rssi\":%d},"
     "\"eth\":{\"present\":false,\"up\":false,\"ip\":\"\"},"
     "\"ap\":{\"up\":%s,\"ip\":\"%s\"},",
-    jbool(the_mesh.getTransport() != 2).c_str(),
+    jbool(the_mesh.getTransport() != 2).c_str(), esp_ble_get_bond_device_num(),
     the_mesh.wifiSsid(), jbool(wifi_up).c_str(), wifi_ip.c_str(), wifi_up ? WiFi.RSSI() : 0,
     jbool(the_mesh.getTransport() == 2).c_str(), ap_ip.c_str());
 
@@ -90,18 +91,21 @@ static String buildStatusJson() {
   snprintf(radio, sizeof(radio),
     "\"pub\":\"%s\",\"web\":%s,\"web_pwd_set\":%s,"
     "\"radio\":{\"freq\":%.3f,\"sf\":%d,\"bw\":%.1f,\"cr\":%d,\"tx\":%d},\"lat\":%.5f,\"lon\":%.5f,"
-    "\"air\":{\"tx_ms\":%lu,\"rx_ms\":%lu,\"tx5\":0,\"rx5\":0,\"s5\":0,\"tx24\":0,\"rx24\":0,\"s24\":0},"
+    "\"air\":{\"tx_ms\":%lu,\"rx_ms\":%lu,\"tx5\":%lu,\"rx5\":%lu,\"s5\":%lu,\"tx24\":%lu,\"rx24\":%lu,\"s24\":%lu},"
     "\"pkts\":{\"tx_flood\":%lu,\"tx_direct\":%lu,\"rx_flood\":%lu,\"rx_direct\":%lu},",
     pub, jbool(the_mesh.getTransport() == 2).c_str(), jbool(the_mesh.webPwdSet()).c_str(),
     p->freq, p->sf, p->bw, p->cr, p->tx_power_dbm, p->node_lat, p->node_lon,
     the_mesh.getTotalAirTime(), the_mesh.getReceiveAirTime(),
+    the_mesh.airTx5(), the_mesh.airRx5(), the_mesh.airSent5(),
+    the_mesh.airTx24(), the_mesh.airRx24(), the_mesh.airSent24(),
     the_mesh.getNumSentFlood(), the_mesh.getNumSentDirect(),
     the_mesh.getNumRecvFlood(), the_mesh.getNumRecvDirect());
 
   String j = String(hdr) + net + radio;
   j += "\"fw\":" + self_update.statusJson() + ",";
   j += "\"mqtt\":" + observer.mqttJson() + ",";
-  j += "\"sig\":false,\"noise\":0,";
+  j += "\"sig\":" + the_mesh.sigJson() + ",";
+  j += "\"noise\":" + String(radio_driver.getNoiseFloor()) + ",";
   j += "\"airlink\":{" + airlink.statsJson() + "}}";
   return j;
 }
@@ -376,6 +380,7 @@ void loop() {
   }
 #endif
   the_mesh.loop();
+  the_mesh.meshosTick();
 #ifdef ESP32
   esp_net.loop();
   observer.loop();

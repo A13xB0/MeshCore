@@ -100,6 +100,7 @@ private:
     int8_t   last_dbm = 0;
     int8_t   weakest_dbm = 0;
     bool     signed_in = false;
+    char     name[24] = {};       // learned from the companion handshake
     uint32_t sends = 0;           // for the per-phone rate cap
     uint32_t window_start = 0;
   };
@@ -120,6 +121,7 @@ private:
   void   relayToPhones(mesh::Packet* pkt);
   void   relayToPhonesRaw(const uint8_t* framed, uint16_t len);
   void   drainPhones();                            // pull phone frames -> LoRa / other phones
+  String bannerJson();                             // the "meshos-rpt/1" probe reply
   void   onPhoneJoined(uint16_t conn, uint16_t mtu, uint16_t interval, uint16_t timeout);
   void   onPhoneLeft(uint16_t conn, uint8_t reason, int8_t last_dbm, int8_t weakest_dbm);
   int    findSlot(uint16_t conn) const;

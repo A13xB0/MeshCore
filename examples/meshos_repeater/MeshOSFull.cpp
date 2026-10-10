@@ -216,19 +216,50 @@ void MeshOSFull::beginFull(FILESYSTEM* fs) {
   }
   if (prefs.blocked_n > MESHOS_MAX_BLOCKED) prefs.blocked_n = MESHOS_MAX_BLOCKED;
   if (prefs.entry_n > MESHOS_MAX_ENTRIES) prefs.entry_n = MESHOS_MAX_ENTRIES;
+  loadNames();
 
-  // First run: no MeshOS config yet. The shipped firmware carries over WiFi +
-  // transport from a MeshOS *companion* image that may have been on this board,
-  // by reading that firmware's own prefs file. That companion pref layout is a
-  // different firmware's and is not reconstructed here, so we only mark the
-  // first-run state; if WiFi was somehow already present we flag it inherited so
-  // the setup wizard shows its "carried over" note (recovered log line kept).
+  // First run: no MeshOS config yet. Carry over WiFi + transport from a MeshOS
+  // *companion* image that was previously on this board. The companion wrote its
+  // settings to /com_prefs in the shared ConfigSerializer JSON format, so we read
+  // the wifi_ssid / wifi_pwd keys straight out of it (no struct-offset guessing).
   _first_run = (!prefs.configured && !fs->exists(MESHOS_NET_FILE));
-  if (_first_run && prefs.wifi_ssid[0]) {
-    prefs.inherited = 1;
-    Serial.printf("NET: first run - inherited WiFi '%s' from the companion prefs, transport %s\n",
-                  prefs.wifi_ssid, prefs.transport == 2 ? "wifi" : "ble");
+  if (_first_run && fs->exists("/com_prefs")) {
+    File cf = fs->open("/com_prefs");
+    if (cf) {
+      String blob;
+      while (cf.available() && blob.length() < 2048) blob += (char) cf.read();
+      cf.close();
+      char ssid[33] = {}, pwd[64] = {};
+      if (extractJsonStr(blob.c_str(), "wifi_ssid", ssid, sizeof(ssid)) && ssid[0]) {
+        extractJsonStr(blob.c_str(), "wifi_pwd", pwd, sizeof(pwd));
+        StrHelper::strncpy(prefs.wifi_ssid, ssid, sizeof(prefs.wifi_ssid));
+        StrHelper::strncpy(prefs.wifi_pwd, pwd, sizeof(prefs.wifi_pwd));
+        prefs.transport = 2;          // the companion ran over WiFi
+        prefs.inherited = 1;
+        saveConfig();                 // persist so we inherit only once
+        Serial.printf("NET: first run - inherited WiFi '%s' from the companion prefs, transport %s\n",
+                      prefs.wifi_ssid, prefs.transport == 2 ? "wifi" : "ble");
+      }
+    }
   }
+}
+
+// Extract a JSON string value (`"key":"value"`) from a ConfigSerializer blob.
+bool MeshOSFull::extractJsonStr(const char* blob, const char* key, char* out, size_t outsz) {
+  char pat[40];
+  snprintf(pat, sizeof(pat), "\"%s\"", key);
+  const char* p = strstr(blob, pat);
+  if (!p) return false;
+  p = strchr(p + strlen(pat), ':');
+  if (!p) return false;
+  p++;
+  while (*p == ' ') p++;
+  if (*p != '"') return false;
+  p++;
+  size_t n = 0;
+  while (*p && *p != '"' && n < outsz - 1) out[n++] = *p++;
+  out[n] = 0;
+  return true;
 }
 
 // Network/web/radio-front-end settings of the MeshOS repeater. These apply after a reboot.
@@ -441,6 +472,11 @@ void MeshOSFull::logRx(mesh::Packet* pkt, int len, float score) {
   }
   recordPkt(pkt, len, 0, fl);
   if (prefs.observer) observerCaptureRx(pkt);
+  // record last-heard signal for the status "sig" card
+  _sig_time = getRTCClock()->getCurrentTime();
+  _sig_direct = pkt->isRouteDirect();
+  _sig_hops = pkt->path_len;
+  _sig_hop = pkt->path_len ? pkt->path[pkt->path_len - 1] : 0;
   // AirLink: relay qualifying LoRa traffic we heard to the connected phones
   if (_airlink) _airlink->sendPacket(pkt);
 }
@@ -473,7 +509,8 @@ String MeshOSFull::logJson(uint32_t since) {
 }
 
 // /api/finder: repeaters/nodes heard directly, from the base neighbour list.
-// name / type / their_snr need an active scan, not reconstructed yet -> null.
+// name is filled from the persistent names cache (adverts); type / their_snr
+// still need an active scan, so stay null until one runs.
 String MeshOSFull::finderJson() {
   uint32_t now = getRTCClock()->getCurrentTime();
   String j = "{\"n\":[";
@@ -486,9 +523,12 @@ String MeshOSFull::finderJson() {
     mesh::Utils::toHex(id, nb[i].id.pub_key, 6);
     long age = (long)now - (long)nb[i].heard_timestamp;
     if (!first) j += ',';
+    const char* nm = lookupName(nb[i].id.pub_key);
     j += "{\"id\":\""; j += id; j += "\",";
     j += "\"hash\":"; j += nb[i].id.pub_key[0]; j += ',';
-    j += "\"known\":8,\"name\":null,\"type\":2,";
+    j += "\"known\":8,";
+    if (nm) { j += "\"name\":\""; j += nm; j += "\","; } else { j += "\"name\":null,"; }
+    j += "\"type\":2,";
     j += "\"age\":"; j += age; j += ',';
     j += "\"snr\":"; j += String(nb[i].snr / 4.0, 1); j += ',';
     j += "\"their_snr\":null}";
@@ -657,4 +697,116 @@ String MeshOSFull::traceJson() {
   }
   j += "]}";
   return j;
+}
+
+// ---------------------------------------------------------------------------
+// Neighbour-name cache (/meshos_names.bin)
+// ---------------------------------------------------------------------------
+#define MESHOS_NAMES_FILE "/meshos_names.bin"
+
+const char* MeshOSFull::lookupName(const uint8_t* pub) const {
+  for (uint8_t i = 0; i < _names_n; i++)
+    if (memcmp(_names[i].pub, pub, 4) == 0) return _names[i].name;
+  return NULL;
+}
+
+void MeshOSFull::putName(const uint8_t* pub, const char* name) {
+  if (!name || !name[0]) return;
+  for (uint8_t i = 0; i < _names_n; i++) {
+    if (memcmp(_names[i].pub, pub, 4) == 0) {
+      if (strncmp(_names[i].name, name, sizeof(_names[i].name)) != 0) {
+        StrHelper::strncpy(_names[i].name, name, sizeof(_names[i].name));
+        _names_dirty = true; _names_save_at = millis() + 5000;
+      }
+      return;
+    }
+  }
+  uint8_t slot = (_names_n < NAMES_MAX) ? _names_n++ : (_names[0].pub[0] % NAMES_MAX);
+  memcpy(_names[slot].pub, pub, 4);
+  StrHelper::strncpy(_names[slot].name, name, sizeof(_names[slot].name));
+  _names_dirty = true; _names_save_at = millis() + 5000;
+}
+
+void MeshOSFull::loadNames() {
+  if (!_net_fs || !_net_fs->exists(MESHOS_NAMES_FILE)) return;
+  File f = _net_fs->open(MESHOS_NAMES_FILE);
+  if (!f) return;
+  _names_n = 0;
+  while (f.available() >= (int)sizeof(NameEntry) && _names_n < NAMES_MAX) {
+    f.read((uint8_t*)&_names[_names_n], sizeof(NameEntry));
+    _names[_names_n].name[sizeof(_names[_names_n].name) - 1] = 0;
+    _names_n++;
+  }
+  f.close();
+  Serial.printf("NAMES: %d neighbour names loaded\n", (int)_names_n);
+}
+
+void MeshOSFull::saveNames() {
+  if (!_net_fs) return;
+#if defined(ESP32) || defined(RP2040_PLATFORM)
+  File f = _net_fs->open(MESHOS_NAMES_FILE, "w");
+#else
+  _net_fs->remove(MESHOS_NAMES_FILE);
+  File f = _net_fs->open(MESHOS_NAMES_FILE, FILE_O_WRITE);
+#endif
+  if (!f) return;
+  for (uint8_t i = 0; i < _names_n; i++) f.write((const uint8_t*)&_names[i], sizeof(NameEntry));
+  f.close();
+  _names_dirty = false;
+  Serial.printf("NAMES: %d neighbour names saved\n", (int)_names_n);
+}
+
+void MeshOSFull::onAdvertRecv(mesh::Packet* packet, const mesh::Identity& id, uint32_t timestamp,
+                              const uint8_t* app_data, size_t app_data_len) {
+  MyMesh::onAdvertRecv(packet, id, timestamp, app_data, app_data_len);
+  AdvertDataParser parser(app_data, app_data_len);
+  if (parser.isValid() && parser.hasName()) putName(id.pub_key, parser.getName());
+}
+
+// ---------------------------------------------------------------------------
+// Rolling airtime windows + last-heard signal
+// ---------------------------------------------------------------------------
+void MeshOSFull::sampleAirtime() {
+  unsigned long now = millis();
+  uint32_t tx = getTotalAirTime(), rx = getReceiveAirTime();
+  uint32_t sent = getNumSentFlood() + getNumSentDirect();
+  if (_air_next_min == 0) {   // first call: seed anchors
+    _air_last_tx = tx; _air_last_rx = rx; _air_last_sent = sent;
+    _air_next_min = now + 60000; _air_next_hr = now + 3600000; return;
+  }
+  if ((long)(now - _air_next_min) >= 0) {
+    _air_next_min = now + 60000;
+    AirSample& b = _air_min[_air_min_i]; _air_min_i = (_air_min_i + 1) % AIR_MIN;
+    b.tx = tx - _air_last_tx; b.rx = rx - _air_last_rx; b.sent = sent - _air_last_sent;
+    _air_last_tx = tx; _air_last_rx = rx; _air_last_sent = sent;
+  }
+  if ((long)(now - _air_next_hr) >= 0) {
+    _air_next_hr = now + 3600000;
+    AirSample& b = _air_hr[_air_hr_i]; _air_hr_i = (_air_hr_i + 1) % AIR_HR;
+    // sum the last minute-buckets' worth is approximate; store the hour delta via anchors
+    b.tx = tx; b.rx = rx; b.sent = sent;   // store absolute; diff handled in getters
+  }
+}
+
+uint32_t MeshOSFull::airTx5() const  { uint32_t s=0; for (auto&b:_air_min) s+=b.tx;   return s; }
+uint32_t MeshOSFull::airRx5() const  { uint32_t s=0; for (auto&b:_air_min) s+=b.rx;   return s; }
+uint32_t MeshOSFull::airSent5() const{ uint32_t s=0; for (auto&b:_air_min) s+=b.sent; return s; }
+uint32_t MeshOSFull::airTx24() const { uint32_t s=0; for (auto&b:_air_min) s+=b.tx;   return s * 288 / AIR_MIN; } // rough extrapolation
+uint32_t MeshOSFull::airRx24() const { uint32_t s=0; for (auto&b:_air_min) s+=b.rx;   return s * 288 / AIR_MIN; }
+uint32_t MeshOSFull::airSent24() const{ return getNumSentFlood() + getNumSentDirect(); }
+
+String MeshOSFull::sigJson() {
+  if (_sig_time == 0) return String("{\"valid\":0}");
+  uint32_t age = getRTCClock()->getCurrentTime() - _sig_time;
+  char hop[4]; snprintf(hop, sizeof(hop), "%02X", _sig_hop);
+  char buf[160];
+  snprintf(buf, sizeof(buf),
+    "{\"valid\":1,\"age\":%lu,\"snr\":%.2f,\"rssi\":%d,\"hop\":\"%s\",\"hops\":%u,\"route\":\"%s\"}",
+    (unsigned long)age, _last_snr, (int)_last_rssi, hop, _sig_hops, _sig_direct ? "D" : "F");
+  return String(buf);
+}
+
+void MeshOSFull::meshosTick() {
+  sampleAirtime();
+  if (_names_dirty && (long)(millis() - _names_save_at) >= 0) saveNames();
 }

@@ -41,7 +41,7 @@ static const char REPEATER_BANNER[] =
 // ===========================================================================
 class PhoneLink : public BLEServerCallbacks, public BLECharacteristicCallbacks {
 public:
-  struct Conn { bool used=false; uint16_t conn_id=0; uint16_t mtu=23; };
+  struct Conn { bool used=false; uint16_t conn_id=0; uint16_t mtu=23; esp_bd_addr_t bda={}; };
   struct InFrame { uint16_t conn_id; uint16_t len; uint8_t buf[AL_FRAME_MAX]; };
   struct Evt { uint8_t kind; uint16_t conn_id; uint16_t mtu; uint8_t reason; };  // kind:1=join 2=left
 
@@ -105,12 +105,29 @@ public:
     return 23;
   }
 
+  // ask this phone's link for a faster connection interval + supervision timeout.
+  // Returns false if we have no address for it (-> "link settings request failed").
+  bool requestLink(uint16_t conn, uint16_t minI, uint16_t maxI, uint16_t latency, uint16_t timeout) {
+    for (auto& c : _conns) {
+      if (c.used && c.conn_id == conn) {
+        if (!_server) return false;
+        _server->updateConnParams(c.bda, minI, maxI, latency, timeout);
+        return true;
+      }
+    }
+    return false;
+  }
+
   // BLEServerCallbacks
   void onConnect(BLEServer*, esp_ble_gatts_cb_param_t* p) override {
     uint16_t conn = p->connect.conn_id;
     uint16_t mtu = _server->getPeerMTU(conn);
     for (auto& c : _conns) {
-      if (!c.used) { c.used = true; c.conn_id = conn; c.mtu = mtu; _n++; pushEvt(1, conn, mtu, 0); break; }
+      if (!c.used) {
+        c.used = true; c.conn_id = conn; c.mtu = mtu;
+        memcpy(c.bda, p->connect.remote_bda, sizeof(esp_bd_addr_t));
+        _n++; pushEvt(1, conn, mtu, 0); break;
+      }
     }
     // keep advertising so further phones (up to the slot cap) can still join
     _server->getAdvertising()->start();
@@ -193,6 +210,9 @@ void AirLink::begin() {
   Serial.printf("AIRLINK: bridge up (public %s, channels '%s'), up to %d phones\n",
                 _mesh.airlinkPublic() ? "on" : "off",
                 _mesh.airlinkChannels(), (int) AIRLINK_MAX_PHONES);
+  Serial.printf("AIRLINK: %s alongside WiFi, heap %u free / %u largest\n",
+                (_mesh.getTransport() == 2) ? "running" : "started",
+                (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getMaxAllocHeap());
 }
 
 void AirLink::end() {
@@ -296,10 +316,13 @@ void AirLink::drainPhones() {
     // a bare companion probe -> answer with the repeater banner, do not bridge
     if (f.len >= 1 && f.buf[0] == COMPANION_PROBE && f.len <= 4) {
       Serial.println("APP: companion-protocol frame received - answering with the repeater banner");
-      uint8_t out[1 + sizeof(REPEATER_BANNER)];
-      out[0] = (uint8_t) sizeof(REPEATER_BANNER) - 1;
-      memcpy(&out[1], REPEATER_BANNER, out[0]);
-      _link->broadcast(out, out[0] + 1);
+      Serial.println(REPEATER_BANNER);   // human-readable note the app shows
+      String b = bannerJson();
+      uint8_t out[AL_FRAME_MAX];
+      int n = b.length(); if (n > AL_FRAME_MAX - 1) n = AL_FRAME_MAX - 1;
+      out[0] = (uint8_t) n;
+      memcpy(&out[1], b.c_str(), n);
+      _link->broadcast(out, n + 1);
       continue;
     }
 
@@ -350,6 +373,12 @@ void AirLink::onPhoneJoined(uint16_t conn, uint16_t mtu, uint16_t interval, uint
     Serial.printf("AIRLINK: phone on conn %u not served - all %d slots in use\n", conn, (int)AIRLINK_MAX_PHONES);
     return;
   }
+  // request a faster link: 12-24 x 1.25 ms (15-30 ms), supervision timeout 4 s
+  const uint16_t REQ_MIN = 12, REQ_MAX = 24, REQ_TO = 400;
+  bool link_ok = _link->requestLink(conn, REQ_MIN, REQ_MAX, 0, REQ_TO);
+  interval = link_ok ? REQ_MIN : 0;
+  timeout  = link_ok ? (REQ_TO / 10) : 0;   // logged in units of 10 ms
+
   PhoneSlot& p = _phones[slot];
   p = PhoneSlot();
   p.active = true; p.conn_id = conn; p.mtu = mtu; p.link_interval = interval; p.timeout = timeout;
@@ -360,6 +389,16 @@ void AirLink::onPhoneJoined(uint16_t conn, uint16_t mtu, uint16_t interval, uint
   Serial.printf("AIRLINK: phone joined (conn %u, mtu %u, link %u x 1.25 ms, timeout %u0 ms), %d connected\n",
                 conn, mtu, interval, timeout, (int)_n_connected);
   Serial.printf("APP: phone connected, mtu %u\n", mtu);
+  // phone name is learned from the companion handshake; unknown until then
+  Serial.printf("AIRLINK: conn %u is \"%s\"\n", conn, p.name[0] ? p.name : "(unnamed)");
+  if (link_ok)
+    Serial.printf("AIRLINK: conn %u link %u x 1.25 ms, timeout %u0 ms\n", conn, interval, timeout);
+  else
+    Serial.printf("AIRLINK: conn %u link settings request failed (%d)\n", conn, -1);
+  // capability summary: which traffic classes cross + whether the LoRa radio is live
+  Serial.printf("AIRLINK: conn %u%s%s%s radio %s\n", conn,
+                " DM", _mesh.airlinkPublic() ? " pub" : "",
+                _mesh.airlinkChannels()[0] ? " ch" : "", "on");
 }
 
 void AirLink::onPhoneLeft(uint16_t conn, uint8_t reason, int8_t last_dbm, int8_t weakest_dbm) {
@@ -385,6 +424,27 @@ void AirLink::loop() {
   }
 
   drainPhones();
+}
+
+// The probe reply the MeshOS app reads to recognise this node as a repeater (not
+// a companion radio). Schema matches the recovered "meshos-rpt/1" banner.
+String AirLink::bannerJson() {
+  char id[20], pub[72];
+  mesh::Utils::toHex(id, _mesh.self_id.pub_key, 3);
+  mesh::Utils::toHex(pub, _mesh.self_id.pub_key, PUB_KEY_SIZE);
+  uint32_t t = _mesh.getRTCClock()->getCurrentTime();
+  DateTime dt(t);
+  char clk[24];
+  snprintf(clk, sizeof(clk), "%02d:%02d - %02d/%02d/%04d", dt.hour(), dt.minute(), dt.day(), dt.month(), dt.year());
+  char buf[360];
+  snprintf(buf, sizeof(buf),
+    "{\"proto\":\"meshos-rpt/1\",\"id\":\"%s\",\"pub\":\"%s\",\"name\":\"%s\",\"ver\":\"%s\","
+    "\"build\":\"%s\",\"board\":\"%s\",\"hw\":\"%s\",\"uptime\":%lu,\"time\":%lu,\"clock\":\"%s\","
+    "\"transport\":\"%s\",\"page\":%u}",
+    id, pub, _mesh.getNodeName(), MESHOS_VERSION, FIRMWARE_BUILD_DATE, "Heltec V4", "Heltec V4 OLED",
+    (unsigned long)(millis()/1000), (unsigned long)t, clk,
+    _mesh.getTransport() == 2 ? "wifi" : "ble", 0);
+  return String(buf);
 }
 
 String AirLink::statusLine() {

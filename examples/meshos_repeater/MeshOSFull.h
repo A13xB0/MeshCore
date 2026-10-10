@@ -76,6 +76,32 @@ class MeshOSFull : public MyMesh {
   uint8_t _trace_hashes[16] = {}, _trace_snrs[16] = {};
 
   void saveConfig();            // write prefs to /meshos_net.json
+  static bool extractJsonStr(const char* blob, const char* key, char* out, size_t outsz);
+
+  // persistent neighbour-name cache (/meshos_names.bin): node pubkey prefix -> name,
+  // learned from adverts so finder/graph keep names across reboots.
+  struct NameEntry { uint8_t pub[4]; char name[32]; };
+  static const uint8_t NAMES_MAX = 48;
+  NameEntry _names[NAMES_MAX] = {};
+  uint8_t   _names_n = 0;
+  bool      _names_dirty = false;
+  unsigned long _names_save_at = 0;
+  void loadNames();
+  void saveNames();
+  void putName(const uint8_t* pub, const char* name);
+  const char* lookupName(const uint8_t* pub) const;
+
+  // rolling airtime windows for the status "air" object (minute buckets)
+  struct AirSample { uint32_t tx, rx, sent; };
+  static const uint8_t AIR_MIN = 5, AIR_HR = 24;
+  AirSample _air_min[AIR_MIN] = {}, _air_hr[AIR_HR] = {};
+  uint8_t   _air_min_i = 0, _air_hr_i = 0;
+  uint32_t  _air_last_tx = 0, _air_last_rx = 0, _air_last_sent = 0;
+  unsigned long _air_next_min = 0, _air_next_hr = 0;
+  void sampleAirtime();
+
+  // last-heard signal for the status "sig" object
+  uint32_t _sig_time = 0; uint8_t _sig_hop = 0, _sig_hops = 0; bool _sig_direct = false;
   void saveFilter() { saveConfig(); }
 
   bool blockChannel(uint8_t hash);
@@ -95,6 +121,8 @@ protected:
   void logTx(mesh::Packet* pkt, int len) override;
   void onTraceRecv(mesh::Packet* packet, uint32_t tag, uint32_t auth_code, uint8_t flags,
                    const uint8_t* path_snrs, const uint8_t* path_hashes, uint8_t path_len) override;
+  void onAdvertRecv(mesh::Packet* packet, const mesh::Identity& id, uint32_t timestamp,
+                    const uint8_t* app_data, size_t app_data_len) override;
 
 public:
   MeshOSFull(mesh::MainBoard& board, mesh::Radio& radio, mesh::MillisecondClock& ms, mesh::RNG& rng, mesh::RTCClock& rtc, mesh::MeshTables& tables)
@@ -128,5 +156,10 @@ public:
   String graphJson();               // /api/graph: this repeater + directly-heard nodes
   bool handleTraceCommand(char* command, char* reply);  // trace <hops>
   String traceJson();               // /api/trace: last trace result, or {ok:false}
+  String sigJson();                 // status "sig": last-heard signal
+  void meshosTick();                // periodic: airtime sampling + names-cache save
+  // rolling airtime (ms) / sent-count over the last 5 min and 24 h
+  uint32_t airTx5() const;  uint32_t airRx5() const;  uint32_t airSent5() const;
+  uint32_t airTx24() const; uint32_t airRx24() const; uint32_t airSent24() const;
   void handleCommand(uint32_t sender_timestamp, char* command, char* reply) override;
 };

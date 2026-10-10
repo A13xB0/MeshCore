@@ -130,10 +130,20 @@ ble/wifi/eth/ap/mqtt/radio/air/pkts/fw/airlink/…), tying the subsystems togeth
 - Endpoint audit: every command and `/api/*` call the extracted web UI issues is
   handled (MeshOS verbs in our source, base radio/advert/identity settings via the
   inherited `CommonCLI`; manual-OTA `/update/identity` + `POST /update` served).
-- Open gaps, all cosmetic/behavioural and flagged in code:
-  - AirLink per-connection BLE link-parameter negotiation (5/12 AIRLINK strings),
-    and its companion probe answered with a text banner vs the `meshos-rpt/1` JSON.
-  - The companion-prefs WiFi-migration *source* (a different firmware's layout).
-  - `/meshos_names.bin` persistent node-name cache (finder/graph work without it).
-  - Observer `meshos/chat/control` messages are logged, not acted on.
-  - Status fields not tracked (§11): rolling airtime windows, signal, bond count.
+- The earlier minor gaps are now closed:
+  - AirLink: per-connection BLE link-parameter negotiation (`updateConnParams` +
+    the `conn %u link…` / `conn %u is…` / capability-summary lines) and the heap
+    note — **all 12/12 AIRLINK strings now match** — and the companion probe is
+    answered with the real `meshos-rpt/1` JSON banner.
+  - Companion WiFi migration: reads `/com_prefs` (shared ConfigSerializer JSON) and
+    carries over `wifi_ssid`/`wifi_pwd`/transport on first run.
+  - `/meshos_names.bin`: persistent neighbour-name cache, learned from adverts and
+    used to fill finder/graph names (`NAMES: %d … loaded/saved`).
+  - Status JSON: real `sig` (last-heard signal), rolling 5-min/24-h airtime windows
+    (minute-bucketed; 24-h is extrapolated from the 5-min buckets), and BLE bond
+    count (`esp_ble_get_bond_device_num`).
+  - `meshos/chat/control` is logged only — that matches the shipped firmware (its
+    sole control-topic string is the log line).
+- Remaining approximations (not gaps in coverage): the AirLink phone *name* is
+  shown as `(unnamed)` until a companion handshake supplies it, and the 24-h
+  airtime window is extrapolated rather than bucketed over a full day.
