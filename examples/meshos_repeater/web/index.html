@@ -1,0 +1,549 @@
+<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MeshOS repeater</title>
+<style>
+:root{color-scheme:dark}body{margin:0;font:14px/1.45 system-ui,sans-serif;background:#0f1216;color:#e6e9ee}
+header{padding:12px 18px 0;background:#161b22;border-bottom:1px solid #2a3140}
+.hd{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+nav{display:flex;gap:2px;margin-top:10px;overflow-x:auto}nav a{color:#8b95a7;text-decoration:none;padding:8px 14px;border-bottom:2px solid transparent;white-space:nowrap}
+nav a.on{color:#e6e9ee;border-bottom-color:#1f6feb}nav a:hover{color:#e6e9ee}
+.tab{display:none}.tab.on{display:block}[hidden]{display:none!important}
+.fl{font-size:12px;margin-left:8px;white-space:nowrap}.f .fl{grid-column:2}
+.sb{display:inline-flex;align-items:flex-end;gap:2px;height:20px;vertical-align:middle;margin-right:10px}.sb i{display:block;width:6px;background:#30363d;border-radius:1px}.sb i.on{background:#4ade80}.sb.w i.on{background:#fbbf24}.sb.b i.on{background:#f87171}
+.ub{height:8px;border-radius:4px;background:#0d1117;border:1px solid #30363d;margin-top:6px;overflow:hidden}.ub i{display:block;height:100%;background:#1f6feb}.ub.rx i{background:#4ade80}
+h1{margin:0;font-size:18px}small{color:#8b95a7}main{padding:16px 18px;max-width:960px;margin:0 auto}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:10px;margin-bottom:18px}
+.card{background:#161b22;border:1px solid #2a3140;border-radius:8px;padding:10px 12px}
+.card b{display:block;color:#8b95a7;font-weight:500;font-size:12px;text-transform:uppercase;letter-spacing:.04em}
+#fd_msg,#fd_list span,#tr_out span,#tr_out td{word-break:normal;font-size:inherit}.card.act{cursor:pointer;border-color:#2f6feb}.card.act:hover{background:#1b2230}.card span{font-size:16px;word-break:break-all}.card small{display:block;margin-top:4px}.ok{color:#4ade80}.bad{color:#f87171}.dim{color:#8b95a7}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0}
+button{background:#1f6feb;border:0;color:#fff;padding:7px 12px;border-radius:6px;cursor:pointer;font:inherit}
+button.q{background:#21262d;border:1px solid #30363d}button:hover{filter:brightness(1.15)}
+input{background:#0d1117;border:1px solid #30363d;color:#e6e9ee;padding:7px 10px;border-radius:6px;font:inherit;flex:1;min-width:160px}
+pre{background:#0d1117;border:1px solid #30363d;border-radius:8px;padding:10px;min-height:120px;max-height:340px;overflow:auto;white-space:pre-wrap;margin:0}
+h2{font-size:13px;color:#8b95a7;text-transform:uppercase;letter-spacing:.04em;margin:18px 0 8px}
+form.set{display:grid;grid-template-columns:120px 1fr auto;gap:8px;align-items:center;margin:6px 0}
+form.set label{color:#8b95a7}a{color:#58a6ff}
+.tbl{max-height:340px;overflow:auto;border:1px solid #30363d;border-radius:8px;background:#0d1117}
+table{width:100%;border-collapse:collapse;font:12px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace}
+th,td{text-align:left;padding:4px 8px;border-bottom:1px solid #21262d;white-space:nowrap}
+th{color:#8b95a7;font-weight:500;position:sticky;top:0;background:#161b22}
+.rx{color:#4ade80}.tx{color:#58a6ff}.txf{color:#f87171}.eh{color:#58a6ff;cursor:pointer;text-decoration:underline dotted}
+.bar{display:grid;grid-template-columns:44px 120px 1fr 56px 76px;gap:8px;align-items:center;padding:3px 0;font:12px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;border-bottom:1px solid #21262d}
+.bar i{display:block;height:10px;border-radius:3px;background:#1f6feb;min-width:2px}.bar.blk i{background:#f87171}.bar.blk{color:#f87171}
+.bar>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.bar button{padding:3px 8px;font-size:12px}.chip{background:#21262d;border:1px solid #30363d;border-radius:999px;padding:2px 10px;font-size:12px}
+.chip b{color:#f87171;cursor:pointer;margin-left:6px;font-weight:700}label.cb{display:flex;gap:6px;align-items:center;color:#e6e9ee}
+.grp{background:#161b22;border:1px solid #2a3140;border-radius:8px;padding:10px 12px;margin-bottom:12px}
+.grp h3{margin:0 0 8px;font-size:13px;color:#8b95a7;text-transform:uppercase;letter-spacing:.04em}
+.f{display:grid;grid-template-columns:170px 1fr auto;gap:8px;align-items:center;margin:5px 0}.f label{color:#8b95a7}.f small{grid-column:2;color:#6b7280;margin-top:-3px}
+select{background:#0d1117;border:1px solid #30363d;color:#e6e9ee;padding:7px 10px;border-radius:6px;font:inherit}
+.radio4{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}.radio4 input{min-width:0}
+.rg{display:grid;grid-template-columns:1fr 70px 68px 76px 72px;gap:6px;align-items:center;padding:4px 0;border-bottom:1px solid #21262d;font:13px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace}
+.rg button{padding:3px 8px;font-size:12px}.rg .tag{color:#8b95a7;font-size:11px}.rg.hd{color:#8b95a7;font-size:11px;text-transform:uppercase}
+#wiz{display:none}body.setup #wiz{display:block}body.setup header,body.setup main{display:none}
+.wiz{max-width:560px;margin:18px auto;padding:0 12px}.wiz h2{margin:0 0 6px;font-size:20px;color:#e6e9ee;text-transform:none;letter-spacing:0}.wiz .step{color:#8b95a7;font-size:12px;margin:14px 0 6px;text-transform:uppercase;letter-spacing:.04em}
+.wiz p{color:#c9d1d9;line-height:1.5;margin:8px 0}.wiz .note{background:#161b22;border:1px solid #2a3140;border-radius:8px;padding:10px 12px;color:#c9d1d9;font-size:13px;margin:10px 0;line-height:1.5}.wiz .btns{display:flex;justify-content:space-between;gap:8px;margin-top:20px}.wiz .wlogo{display:block;width:120px;height:auto;margin:10px auto 16px}.wiz .btns2{display:block;margin-top:8px;text-align:right}
+.askbg{position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;z-index:50;padding:16px}.askbox{background:#161b22;border:1px solid #2a3140;border-radius:10px;padding:16px 18px;max-width:420px;width:100%;color:#e6e9ee;white-space:pre-line;line-height:1.5;font-size:14px}.askbtns{display:flex;justify-content:flex-end;gap:8px;margin-top:14px;flex-wrap:wrap}
+#notices{position:fixed;left:0;right:0;bottom:0;z-index:40;box-shadow:0 -6px 18px rgba(0,0,0,.55)}#notices .bar{grid-template-columns:none;border-bottom:0;font:13px/1.4 system-ui,sans-serif;padding:10px 18px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;font-size:13px;line-height:1.4}.pend{background:#2a2410;border-top:1px solid #6b5300;color:#fde68a}.pend button{background:#b45309;white-space:nowrap}.stale{background:#7c2d12;border-top:1px solid #f97316;color:#ffedd5}.stale button{white-space:nowrap}body.notice main{padding-bottom:84px}body.setup #notices{display:none!important}
+@media (max-width:640px){main{padding:12px 10px}header{padding:10px 12px 0}
+.f,form.set{grid-template-columns:1fr auto}.f label,form.set label{grid-column:1/-1;margin-bottom:-2px}
+.f small,.f .fl,form.set small{grid-column:1/-1;white-space:normal}.f input,.f select,form.set input,form.set select{min-width:0;width:100%;box-sizing:border-box}
+.f>span{min-width:0;overflow-wrap:anywhere}.radio4{grid-template-columns:repeat(2,1fr)}
+.rg{grid-template-columns:1fr 54px 54px 60px 56px;gap:4px;font-size:12px}.rg button{padding:3px 5px;font-size:11px}
+.bar{grid-template-columns:36px 70px 1fr 48px 64px;gap:5px}}
+</style></head><body>
+<div id="ask" class="askbg" style="display:none"><div class="askbox"><div id="ask_msg"></div><div class="askbtns" id="ask_btns"><button class="q" id="ask_no">Cancel</button><button id="ask_ok">OK</button></div></div></div>
+<div id="wiz"><div class="wiz"><img id="w_logo" class="wlogo" alt="MeshOS" src="data:image/png;base64,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"><div class="step" id="w_step"></div><h2 id="w_title"></h2><div id="w_body"></div><div id="w_err" class="bad" style="margin-top:8px"></div><div id="w_skipq" class="note" style="display:none">Skip the setup? You can run it again later from Settings &gt; Maintenance.<span class="btns2"><button class="q" id="w_skipno">Cancel</button> <button id="w_skipyes">Skip</button></span></div><div class="btns"><button class="q" id="w_back">Back</button><span><button class="q" id="w_skip">Skip setup</button> <button id="w_next">Next</button></span></div></div></div>
+<header><div class="hd"><h1 id="name">MeshOS repeater</h1><small id="id"></small><small id="ver"></small></div>
+<nav><a href="#overview" data-t="overview">Overview</a><a href="#console" data-t="console">Console</a><a href="#channels" data-t="channels">Channels</a><a href="#packets" data-t="packets">Packets</a><a href="#network" data-t="network">Network</a><a href="#settings" data-t="settings">Settings</a><a href="#admin" data-t="admin">Admin</a><a href="#update" data-t="update">Update</a></nav></header>
+<main>
+<section class="tab" id="tab-overview"><div class="grid" id="grid"></div></section>
+<section class="tab" id="tab-console">
+<form id="cf" class="row"><input id="cmd" placeholder="CLI command, e.g. stats" autocomplete="off"><button>Send</button></form>
+<div class="row">
+<button class="q" data-c="stats-core">stats</button><button class="q" data-c="stats-radio">radio stats</button>
+<button class="q" data-c="stats-packets">packet stats</button><button class="q" data-c="get radio">radio settings</button>
+<button class="q" data-c="neighbors">neighbors</button><button class="q" data-c="get net">get net</button>
+<button class="q" data-c="ver.meshos">version</button><button class="q" data-c="advert">advert</button>
+<button class="q" data-c="clock">clock</button><button class="q" data-c="reboot" data-confirm="Reboot the repeater?">reboot</button>
+</div>
+<pre id="out">Ready.</pre>
+</section>
+<section class="tab" id="tab-channels">
+<h2>Channels <span class="dim" id="ch_n"></span></h2>
+<div class="row"><label class="cb"><input type="checkbox" id="ch_pub"> Repeat public channel</label>
+<form id="ch_add" class="row" style="margin:0;flex:1"><input id="ch_in" placeholder="block a channel: hex hash (4F) or #hashtag" autocomplete="off"><button>Block</button></form>
+<button class="q" id="ch_clear">Clear stats</button></div>
+<div id="ch_blocked" class="row"></div>
+<div class="tbl" style="max-height:300px;padding:4px 10px" id="ch_bars"></div>
+<p class="dim" id="ch_types" style="margin:6px 0 0"></p>
+<h2>Entry repeaters <span class="dim" id="en_n"></span></h2>
+<p class="dim" style="margin:0 0 6px">Channel messages by the repeater they got onto the mesh through (the first hop of their path). Block a spammer's entry repeater and its channel messages are not repeated here or passed to AirLink phones; direct messages, acks and adverts still go through. A path with 1-byte hashes only shows the first byte, so it is matched on that.</p>
+<form id="en_add" class="row" style="margin:0 0 6px"><input id="en_in" placeholder="block an entry repeater: hex ID (A0 or A07E)" autocomplete="off"><button>Block</button></form>
+<div id="en_blocked" class="row"></div>
+<div class="tbl" style="max-height:300px;padding:4px 10px" id="en_bars"></div>
+</section>
+<section class="tab" id="tab-packets">
+<h2>Airtime</h2>
+<div class="grid" id="air"></div>
+<h2>Live packets <span class="dim" id="plog_n"></span></h2>
+<div class="row"><button class="q" id="plog_pause">Pause</button><button class="q" id="plog_clear">Clear</button>
+<span class="dim" style="align-self:center">newest first · RX = heard, TX = sent (own adverts and forwards) · click a channel message's first hop to block the repeater it came in through</span></div>
+<div class="tbl"><table id="plog"><thead><tr><th>time</th><th></th><th>type</th><th>route</th><th>hops</th><th>len</th><th>snr</th><th>rssi</th><th>ch</th><th>path</th></tr></thead><tbody></tbody></table></div>
+</section>
+<section class="tab" id="tab-network">
+<h2>Network <span class="dim" id="nw_n"></span></h2>
+<div class="row" style="align-items:center"><label class="dim" for="nw_hops">Show up to</label><input type="range" id="nw_hops" min="0" max="64" value="0" style="flex:1;max-width:340px;min-width:120px;padding:0"><b id="nw_hops_v" style="min-width:110px">0 hops</b>
+<button class="q" id="nw_clear">Reset</button><span class="dim">left = us · next column = nodes heard directly, with SNR · then the nodes that fed each of them · sorted and sized by how often the path is used · ×N = packets</span></div>
+<div class="tbl" style="max-height:72vh;padding:0;overflow:auto"><svg id="nw" width="900" height="400" style="display:block;font:11px ui-monospace,SFMono-Regular,Menlo,monospace"></svg></div>
+<div class="row" id="nw_legend" style="margin:8px 0 0;gap:12px"></div>
+<p class="dim" id="nw_note" style="margin:6px 0 0">Each row is a distinct path into this repeater; a node appears once per path it belongs to. Circles = repeaters, squares = originators, white halo = seen in the last 20 s. <span style="color:#4ade80">&#10003;</span> = verified: the same path was also seen with 2- or 3-byte hashes (green when every hop back to us is); <span style="color:#8b95a7">&#10003;</span> = that node only. Scroll to explore.</p>
+<div style="display:grid;grid-template-columns:1fr;gap:12px;margin-top:14px">
+<div class="card"><b>Neighbours</b>
+<div class="row" style="align-items:center;margin:8px 0 0"><button id="fd_go">Scan now</button><button class="q" id="fd_clear">Clear</button><span class="dim" id="fd_msg">repeaters heard directly: the last hop of packets we receive, their zero-hop adverts, and answers to a scan; each fills in more (key, name, signal both ways). Scan now asks every node in range to answer</span></div>
+<div class="tbl" id="fd_list" style="margin-top:8px;padding:0"></div></div>
+<div class="card"><b>Trace a path</b>
+<div class="row" style="align-items:center;margin:8px 0 0"><input id="tr_hops" placeholder="hop hashes, e.g. 7A,3C" style="flex:1;min-width:150px"><label class="dim" style="white-space:nowrap"><input type="checkbox" id="tr_back" checked> and back</label><button id="tr_go">Send trace</button></div>
+<div id="tr_out" style="margin-top:8px"></div>
+<p class="dim" style="margin:8px 0 0">The trace visits each hop in turn and every hop records the signal it received it at. "And back" returns along the same hops so the result reaches this repeater. IDs are the first 3 bytes of a node's public key; a trace hop is the first 1, 2 or 4 bytes (the graph above uses 1). Tap + in the Nearby list to add a node.</p>
+</div></div>
+</section>
+<section class="tab" id="tab-settings">
+<h2>Settings <span class="dim">· every field is a CLI command; radio changes need a reboot</span></h2>
+<div class="grp"><h3>Device</h3>
+<div class="f"><label>Device</label><span id="d_board"></span><span></span></div>
+<div class="f"><label>Hardware</label><span id="d_hw"></span><span></span></div>
+<div class="f"><label>Name</label><span id="d_name"></span><span></span></div>
+<div class="f"><label>Firmware</label><span id="d_fw"></span><span></span></div>
+<div class="f"><label>Free RAM</label><span id="d_heap" class="dim"></span><span></span></div>
+<div class="f"><label>Public key</label><span id="d_pub" style="font:12px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;word-break:break-all"></span><button class="q" id="d_copy">Copy</button></div>
+</div>
+<div class="grp"><h3>Radio</h3>
+<div class="f"><label>Preset</label><select id="r_preset"><option value="">Custom</option></select></div>
+<div class="f"><label>Frequency / BW / SF / CR</label><div class="radio4"><input id="r_freq" placeholder="MHz"><input id="r_bw" placeholder="kHz"><input id="r_sf" placeholder="SF"><input id="r_cr" placeholder="CR"></div><button id="r_save">Save radio</button></div>
+<div class="f"><label>TX power (dBm)</label><input id="s_tx" data-cmd="set tx "><button class="sv">Save</button></div>
+<div class="f"><label>RX boosted gain</label><select id="s_rxgain" data-cmd="set radio.rxgain "><option value="on">on</option><option value="off">off</option></select><button class="sv">Save</button></div>
+<div class="f" id="f_femrx" hidden><label>Front-end RX gain</label><select id="s_femrx" data-cmd="set radio.fem.rxgain "><option value="on">on (LNA)</option><option value="off">off (bypass)</option></select><button class="sv">Save</button><small>external LNA in the radio front-end module; applies immediately</small></div>
+<div class="f" id="f_femtx" hidden><label>Front-end TX gain</label><select id="s_femtx" data-cmd="set radio.fem.txgain "><option value="on">on</option><option value="off">off</option></select><button class="sv">Save</button><small>front-end PA gain stage</small></div>
+</div>
+<div class="grp"><h3>Node</h3>
+<div class="f"><label>Name</label><input id="s_name" data-cmd="set name "><button class="sv">Save</button></div>
+<div class="f"><label>Latitude</label><input id="s_lat" data-cmd="set lat "><button class="sv">Save</button></div>
+<div class="f"><label>Longitude</label><input id="s_lon" data-cmd="set lon "><button class="sv">Save</button></div>
+<div class="f"><label>Owner info</label><input id="s_owner" data-cmd="set owner.info "><button class="sv">Save</button></div>
+<div class="f"><label>Admin password</label><input id="s_pass" type="password" data-cmd="password " placeholder="write-only"><button class="sv">Save</button></div>
+<div class="f"><label>Guest password</label><input id="s_guest" data-cmd="set guest.password "><button class="sv">Save</button></div>
+</div>
+<div class="grp"><h3>Repeating</h3>
+<div class="f"><label>Repeat packets</label><select id="s_repeat" data-cmd="set repeat "><option value="on">on</option><option value="off">off</option></select><button class="sv">Save</button></div>
+<div class="f"><label>Advert interval (min)</label><input id="s_adv" data-cmd="set advert.interval "><button class="sv">Save</button><small>0 = off; anything under 60 is turned off by the firmware</small></div>
+<div class="f"><label>Flood advert interval (h)</label><input id="s_fadv" data-cmd="set flood.advert.interval "><button class="sv">Save</button></div>
+<div class="f"><label>Flood max (hops)</label><input id="s_fmax" data-cmd="set flood.max "><button class="sv">Save</button></div>
+<div class="f"><label>Flood max, unscoped</label><input id="s_fmaxu" data-cmd="set flood.max.unscoped "><button class="sv">Save</button></div>
+<div class="f"><label>Flood max, adverts</label><input id="s_fmaxa" data-cmd="set flood.max.advert "><button class="sv">Save</button></div>
+<div class="f"><label>Loop detection</label><select id="s_loop" data-cmd="set loop.detect "><option>off</option><option>minimal</option><option>moderate</option><option>strict</option></select><button class="sv">Save</button></div>
+<div class="f"><label>Path hash mode</label><select id="s_hash" data-cmd="set path.hash.mode "><option value="0">0 · 1-byte hashes</option><option value="1">1 · 2-byte</option><option value="2">2 · 3-byte</option></select><button class="sv">Save</button></div>
+</div>
+<div class="grp"><h3>Regions <span class="dim" id="rg_n" style="text-transform:none;letter-spacing:0"></span><span id="rg_anchor"></span></h3>
+<div class="f"><label>Repeat unscoped floods</label><select id="rg_root"><option value="allowf">on</option><option value="denyf">off</option></select><button id="rg_root_sv">Save</button><small>the "*" root: plain floods without a region code</small></div>
+<div class="f"><label>Default region</label><select id="rg_def"><option value="<null>">none</option></select><button id="rg_def_sv">Save</button><small>scope this node's own floods carry; also allowed for repeating</small></div>
+<div class="f"><label>Home region</label><select id="rg_home"><option value="*">*</option></select><button id="rg_home_sv">Save</button></div>
+<div id="rg_list"></div>
+<div class="f" style="margin-top:8px"><label>Add region</label><div class="row" style="margin:0"><input id="rg_name" placeholder="name" style="flex:1"><select id="rg_parent"><option value="">under *</option></select></div><button id="rg_add">Add</button><small>new regions allow flooding; "Deny" turns that off per region</small></div>
+<div class="f"><label>Define tree</label><input id="rg_def_txt" placeholder="region def syntax, e.g. UK London|UK Kent"><button id="rg_def_go">Apply</button><small>same grammar as the CLI's "region def"; applied then saved</small></div>
+</div>
+<div class="grp"><h3>Timing &amp; advanced</h3>
+<div class="f"><label>Airtime factor</label><input id="s_af" data-cmd="set af "><button class="sv">Save</button><small>TX airtime allowed per unit of RX airtime (1.0 = equal)</small></div>
+<div class="f"><label>RX delay base</label><input id="s_rxd" data-cmd="set rxdelay "><button class="sv">Save</button></div>
+<div class="f"><label>TX delay factor</label><input id="s_txd" data-cmd="set txdelay "><button class="sv">Save</button></div>
+<div class="f"><label>Direct TX delay</label><input id="s_dtxd" data-cmd="set direct.txdelay "><button class="sv">Save</button></div>
+<div class="f"><label>Interference threshold</label><input id="s_int" data-cmd="set int.thresh "><button class="sv">Save</button></div>
+<div class="f"><label>CAD before TX</label><select id="s_cad" data-cmd="set cad "><option value="on">on</option><option value="off">off</option></select><button class="sv">Save</button></div>
+<div class="f"><label>AGC reset interval (s)</label><input id="s_agc" data-cmd="set agc.reset.interval "><button class="sv">Save</button></div>
+<div class="f"><label>Multi-ACKs</label><input id="s_macks" data-cmd="set multi.acks "><button class="sv">Save</button></div>
+<div class="f"><label>ADC multiplier</label><input id="s_adc" data-cmd="set adc.multiplier "><button class="sv">Save</button><small>0 = board default</small></div>
+</div>
+<div class="grp"><h3>Network</h3>
+<div class="f"><label>Transport</label><select id="s_tr" data-cmd="set transport "><option value="ble">BLE (app configures over Bluetooth)</option><option value="wifi">WiFi</option></select><button class="sv">Save</button><small id="s_tr_hint">reboot to apply; Ethernet works in both modes</small></div>
+<div class="f"><label>MeshOS observer</label><select id="s_obs" data-cmd="set observer "><option value="off">off</option><option value="on">on</option></select><button class="sv">Save</button><small>on = upload every heard packet and a heartbeat (signed) to the MeshOS observer at meshcore.co.uk; off = the repeater never contacts the observer server. Off by default. Time (NTP) and update checks are separate.</small></div>
+<div class="f"><label>Bluetooth PIN</label><input id="s_pin" data-cmd="set ble.pin " inputmode="numeric" maxlength="6" placeholder="123456"><button class="sv">Save</button><small>6 digits, default 123456; applies after a reboot. Phones paired with the old PIN must forget the repeater in their Bluetooth settings and pair again.</small></div>
+<div class="f"><label>WiFi SSID</label><input id="s_ssid" data-cmd="set wifi.ssid " placeholder="blank = wired only"><button class="sv">Save</button></div>
+<div class="f"><label>WiFi password</label><input id="s_pwd" type="password" data-cmd="set wifi.pwd "><button class="sv">Save</button></div>
+<div class="f"><label>AirLink bridge</label><select id="s_air" data-cmd="set airlink "><option value="off">off</option><option value="on">on</option></select><button class="sv">Save</button><small>links the MeshOS app's phone-to-phone mesh (AirLink, over Bluetooth) to LoRa: direct messages, their acks and the channels below cross both ways, end-to-end encrypted as sent. Up to 3 phones. Works in Bluetooth and WiFi mode (boards with PSRAM); applies after a restart.</small></div>
+<div class="f"><label>AirLink: Public channel</label><select id="s_airpub" data-cmd="set airlink.public "><option value="on">on</option><option value="off">off</option></select><button class="sv">Save</button></div>
+<div class="f"><label>AirLink: more channels</label><input id="s_airch" data-cmd="set airlink.channels " placeholder="#hashtag channels, comma separated"><button class="sv">Save</button><small>Public has its own switch; type - to clear the list</small></div>
+</div>
+<div class="grp"><h3>Maintenance</h3>
+<div class="f"><label>Reboot</label><span class="dim" id="s_reboot_msg">applies pending radio / transport / web changes</span><button id="s_reboot" style="background:#b91c1c">Reboot now</button></div>
+<div class="f"><label>Setup wizard</label><span class="dim">run the first-time setup again (name, radio, network)</span><button class="q" id="s_wizard">Run setup</button></div>
+<div class="f"><label>Firmware</label><span class="dim">updates are on the <a href="#update">Update</a> tab</span><span></span></div>
+</div>
+<p class="dim">Same commands work over BLE and on TCP port 23.</p>
+</section>
+<section class="tab" id="tab-update">
+<h2>Firmware update</h2>
+<div class="grp"><h3>MeshOS repeater firmware</h3>
+<div class="f"><label>Running</label><span id="fw_cur">&hellip;</span><span></span></div>
+<div class="f"><label>Latest on meshcore.co.uk</label><span id="fw_latest" class="dim">not checked yet</span><button class="q" id="fw_check">Check now</button></div>
+<div class="f" id="fw_notes_row" hidden><label>What's new</label><span id="fw_notes" class="dim"></span><span></span></div>
+<div class="f"><label>Install</label><span id="fw_msg" class="dim">Check for updates first.</span><button id="fw_go" disabled>Install</button></div>
+<div class="f" id="fw_bar_row" hidden><label></label><div class="ub" style="margin-top:0"><i id="fw_fill" style="width:0"></i></div><span id="fw_pct" class="dim" style="min-width:3em;text-align:right"></span></div>
+<div class="f"><label></label><span class="dim">The repeater downloads the firmware itself, verifies its sha256 against the manifest, writes it to the spare firmware slot and reboots into it. Identity, settings and network configuration are kept. The repeater checks for updates by itself a few times a day.</span><span></span></div>
+</div>
+<div class="grp"><h3>Manual upload (legacy)</h3>
+<div class="f"><label>Upload a .bin</label><span class="dim">The original OTA page is still at <a href="/update">/update</a>: pick a MeshOS repeater firmware file from your computer. It uses the web password from the last boot.</span><span></span></div>
+</div>
+</section>
+<section class="tab" id="tab-admin">
+<h2>Admin</h2>
+<div class="grp"><h3>Web interface login</h3>
+<p class="dim" style="margin:0 0 10px">User name is <b style="color:#e6e9ee">admin</b>. <span id="ad_mode"></span></p>
+<div class="f"><label>Current password</label><input id="ad_cur" type="password" autocomplete="current-password"><span></span></div>
+<div class="f"><label>New password</label><input id="ad_new" type="password" autocomplete="new-password" placeholder="4-32 characters, no spaces"><span></span></div>
+<div class="f"><label>Confirm new password</label><input id="ad_new2" type="password" autocomplete="new-password"><button id="ad_change">Change password</button></div>
+<div class="f"><label></label><span class="dim">After a change the browser asks you to sign in again with the new password. The firmware-update page (/update) keeps using the password from the last boot.</span><span></span></div>
+</div>
+<div class="grp"><h3>Use the repeater's admin password instead</h3>
+<div class="f"><label>Dedicated web password</label><span class="dim">Clearing it makes the web login fall back to the repeater admin password (Settings › Node › Admin password).</span><button class="q" id="ad_clear">Clear web password</button></div>
+</div>
+</section>
+</main>
+<div id="notices"><div id="pending" class="bar pend" style="display:none"><span id="pend_msg"></span><button id="pend_btn">Restart now</button></div><div id="stale" class="bar stale" hidden><span>This page is from an older firmware than the repeater is running.</span><button id="stale_btn">Reload page</button></div></div>
+<script>
+const $=s=>document.querySelector(s);
+let lastStatus=null,rebooting=false,advNote='',advBusy=false;   // rebooting: a restart was confirmed, so the pending-transport notice must not come back
+function choose(msg,opts){return new Promise(res=>{const d=$('#ask'),bx=$('#ask_btns');$('#ask_msg').textContent=msg;bx.innerHTML='<button class="q" id="ask_no">Cancel</button>'+opts.map((o,i)=>'<button data-i="'+i+'">'+o.l+'</button>').join('');d.style.display='';const done=v=>{d.style.display='none';bx.innerHTML='<button class="q" id="ask_no">Cancel</button><button id="ask_ok">OK</button>';res(v)};bx.querySelector('#ask_no').onclick=()=>done(null);bx.querySelectorAll('button[data-i]').forEach(b=>b.onclick=()=>done(opts[+b.dataset.i].v))})}
+async function advertNow(){if(advBusy)return;const v=await choose('Send an advert now?\n\nLocal: a zero-hop advert, only radios in direct range learn about this repeater.\nWhole network: a flood advert that every repeater passes on, so the entire MeshCore network learns it. Use that one sparingly.',[{l:'Local (zero hop)',v:'advert.zerohop'},{l:'Whole network',v:'advert'}]);if(!v)return;advBusy=true;advNote='sending…';status();const t=await send(v);advBusy=false;advNote=/^OK/.test(t)?(v==='advert'?'flood advert sent':'zero-hop advert sent'):(t||'failed');status();setTimeout(()=>{advNote='';status()},8000)}
+function ask(msg,ok){return new Promise(res=>{const d=$('#ask');$('#ask_msg').textContent=msg;$('#ask_ok').textContent=ok||'OK';d.style.display='';const done=v=>{d.style.display='none';$('#ask_ok').onclick=$('#ask_no').onclick=null;res(v)};$('#ask_ok').onclick=()=>done(true);$('#ask_no').onclick=()=>done(false);$('#ask_ok').focus()})}
+const TABS=['overview','console','channels','packets','network','settings','admin','update'];let tab='overview';
+function showTab(t){if(!TABS.includes(t))t='overview';tab=t;document.querySelectorAll('.tab').forEach(e=>e.classList.toggle('on',e.id==='tab-'+t));document.querySelectorAll('nav a[data-t]').forEach(a=>a.classList.toggle('on',a.dataset.t===t));
+try{localStorage.setItem('rpt_tab',t)}catch(e){}if(location.hash!=='#'+t)history.replaceState(null,'','#'+t);
+if(t==='channels')chans();if(t==='packets'){plog();renderAir()}if(t==='network')graph();if(t==='settings'){prefs();regions()}if(t==='update')status()}
+window.addEventListener('hashchange',()=>showTab(location.hash.slice(1)));
+function noiseCard(j){const n=j.noise;if(!n||!n.now)return card('Noise floor','<span class="dim">calibrating\u2026</span>');
+const h=(n.hist||[]).filter(v=>v);const W=180,H=34,lo=-120,hi=-80;
+const pts=h.map((v,i)=>{const x=h.length>1?i/(h.length-1)*W:0;const y=H-((Math.min(hi,Math.max(lo,v))-lo)/(hi-lo))*H;return x.toFixed(0)+','+y.toFixed(0)});
+const mn=h.length?Math.min(...h):n.now,mx=h.length?Math.max(...h):n.now;const cls=n.now<=-110?'ok':n.now<=-100?'':'bad';
+return '<div class="card"><b>Noise floor</b><span class="'+cls+'">'+n.now+' dBm</span>'+(h.length>1?'<svg viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="none" style="width:100%;height:34px;display:block;margin-top:4px"><line x1="0" y1="'+(H-((-100-lo)/(hi-lo))*H).toFixed(0)+'" x2="'+W+'" y2="'+(H-((-100-lo)/(hi-lo))*H).toFixed(0)+'" stroke="#30363d" stroke-dasharray="3 3"/><polyline fill="none" stroke="#58a6ff" stroke-width="1.5" points="'+pts.join(' ')+'"/></svg>':'')+'<small>'+(h.length>1?'last '+fmtDur(h.length*(n.period||2))+' \u00b7 '+mn+' to '+mx+' dBm \u00b7 scale -120 to -80':'sampling\u2026')+'</small></div>'}
+function sigCard(j){const g=j.sig;if(!g||!g.valid||g.age>90)return card('Signal','<span class="dim">no signal'+(g&&g.valid?' · last '+fmtUp(g.age)+' ago':'')+'</span>');
+const bars=g.snr>10?5:g.snr>5?4:g.snr>0?3:g.snr>-5?2:g.snr>-10?1:0;const cls=bars>=4?'':bars>=2?'w':'b';
+const sb='<span class="sb '+cls+'">'+[0,1,2,3,4].map(i=>'<i style="height:'+(6+i*3)+'px" class="'+(i<bars?'on':'')+'"></i>').join('')+'</span>';
+const hop=g.hop?'<span title="last hop before us (path hash)">'+g.hop+'</span>':(g.route==='direct'&&g.hops>0?'<span class="dim" title="a direct-routed packet: its path lists the hops ahead of it, not the one it came from">direct route</span>':'<span class="dim">direct</span>');
+return '<div class="card"><b>Signal · last packet</b><span>'+sb+hop+'</span><small>SNR '+g.snr.toFixed(1)+' dB · RSSI '+g.rssi+' dBm · '+(g.age<1?'just now':g.age+' s ago')+(g.hops?' · '+g.hops+' hop'+(g.hops===1?'':'s'):'')+'</small></div>'}
+// Battery from the board's ADC; a reading of 0 V means there is no battery on this board (mains / PoE / USB only).
+function battCard(j){const mv=+j.batt_mv||0;if(mv<=0)return card('Battery','DC / external power','dim');const v=mv/1000,p=Math.round(Math.max(0,Math.min(100,(mv-3300)/9)));return card('Battery',v.toFixed(2)+' V <span class="dim">\u2248 '+p+'%</span>',mv<3500?'bad':'')}
+function card(k,v,c){return `<div class="card"><b>${k}</b><span class="${c||''}">${v}</span></div>`}
+function fmtDur(s){return s<60?s+' s':s<3600?Math.floor(s/60)+' min':fmtUp(s)}
+function fmtUp(s){const d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60);return (d?d+'d ':'')+h+'h '+m+'m'}
+let statusMiss=0;
+let statusBusy=false;  async function status(){if(statusBusy)return;statusBusy=true;try{const r=await fetch(location.origin+'/api/status',{cache:'no-store'});if(!r.ok)throw 0;const j=await r.json();
+if(j.setup===false&&!wizActive&&!wizDone)startWizard(j);if(wizActive)W.j=j;
+lastStatus=j;const pend=!rebooting&&!!(j.running&&j.running!==j.transport);$('#pending').style.display=pend?'':'none';document.body.classList.toggle('notice',pend||!$('#stale').hidden);if($('#s_tr_hint'))$('#s_tr_hint').innerHTML=pend?'<span class="ok">saved - the switch to '+(j.transport==='ble'?'Bluetooth':'WiFi')+' happens at the restart (button below, or Maintenance &gt; Reboot now)</span>':'reboot to apply; Ethernet works in both modes';if(pend)$('#pend_msg').textContent='Transport change saved: the repeater switches to '+(j.transport==='ble'?'Bluetooth (managed from the MeshOS app)':'WiFi')+' when it restarts.';
+$('#name').textContent=j.name;$('#id').textContent='#'+j.id;$('#ver').textContent='MeshOS repeater '+j.ver+(j.board?' \u00b7 '+j.board:'');
+if($('#d_board')){$('#d_board').textContent=j.board||'';$('#d_hw').textContent=j.hw||'';$('#d_name').textContent=j.name;$('#d_fw').innerHTML='MeshOS repeater v'+j.ver+' <small class="dim">build '+j.build+'</small>';$('#d_pub').textContent=j.pub||'';if(j.heap)$('#d_heap').textContent=Math.round(j.heap.free/1024)+' KB free \u00b7 lowest '+Math.round(j.heap.min/1024)+' KB \u00b7 largest block '+Math.round(j.heap.block/1024)+' KB';}
+if(window.PAGE_BUILD&&j.build&&j.build!==window.PAGE_BUILD){$('#stale').hidden=false;document.body.classList.add('notice')}
+if(j.air){window.lastAir=j;if(tab==='packets')renderAir()}
+if(j.fw)fwRender(j);
+if(j.web_pwd_set!==undefined)$('#ad_mode').textContent=j.web_pwd_set?'A dedicated web password is set.':'No web password is set yet - the repeater admin password is accepted.';
+const mq=j.mqtt;const g=[
+card('Uptime',fmtUp(j.uptime)),
+card('Transport',(j.running||j.transport).toUpperCase()+(j.ble.on?(j.ble.connected?' · app connected':' · advertising'):'')+(j.running&&j.running!==j.transport&&!rebooting?' · '+j.transport.toUpperCase()+' after restart':'')),
+card('WiFi',j.wifi.up?j.wifi.ip+' ('+j.wifi.rssi+' dBm)':(j.ap&&j.ap.up?'fallback AP '+j.ap.ip+' <small class="dim">could not join '+escH(j.wifi.ssid||'(no SSID)')+' - fix it in Settings</small>':(j.wifi.ssid?'not connected':'not set')),j.wifi.up?'ok':(j.ap&&j.ap.up?'bad':'dim')),
+card('Ethernet',j.eth.present?(j.eth.up?j.eth.ip:'no link'):'n/a',j.eth.up?'ok':'dim'),
+j.air?airCard('Last 24 hours',j.air.tx24/10/j.air.s24,j.air.rx24/10/j.air.s24,j.air.s24<86000?`airtime over the ${fmtUp(j.air.s24)} recorded so far`:`airtime · TX ${(j.air.tx24/1000).toFixed(0)} s · RX ${(j.air.rx24/1000).toFixed(0)} s`):card('Last 24 hours','—','dim'),
+battCard(j),
+sigCard(j),
+noiseCard(j),
+card('Radio',j.radio.freq.toFixed(3)+' MHz · SF'+j.radio.sf+' · BW'+j.radio.bw+' · CR'+j.radio.cr+' · '+j.radio.tx+' dBm'),
+'<div class="card act" id="adv_card"><b>Advert</b><span class="'+(advNote?(/sent/.test(advNote)?'ok':/^Err|failed/.test(advNote)?'bad':''):'')+'">'+(advNote||'Send now')+'</span><small class="dim">tap: local (zero hop) or the whole network</small></div>',
+!mq.enabled?card('MeshOS observer','off <span class="dim">(not uploading)</span>','dim'):card('MeshOS observer',(mq.connected?(mq.paused?'paused by server':'connected'):'connecting…')+' <span class="dim">· '+mq.published+' uploaded'+(mq.dropped?', '+mq.dropped+' dropped':'')+'</span>',mq.connected&&!mq.paused?'ok':'bad'),
+fwCard(j),airlinkCard(j)];
+$('#grid').innerHTML=g.join('');$('#grid').onclick=e=>{if(e.target.closest('#adv_card'))advertNow()};
+if(!$('#s_name').value)$('#s_name').placeholder=j.name;if(!$('#s_ssid').value)$('#s_ssid').placeholder=j.wifi.ssid||'blank = wired only';
+statusMiss=0;}catch(e){if(++statusMiss>=2)$('#grid').innerHTML=card('Status','unreachable','bad')}finally{statusBusy=false}}
+async function send(c){$('#out').textContent='> '+c+'\n…';let t='request failed';try{const r=await fetch(location.origin+'/api/cmd',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'cmd='+encodeURIComponent(c)});t=await r.text();}catch(e){}
+$('#out').textContent='> '+c+'\n'+t;setTimeout(status,400);return t}
+// inline reply next to the button that was pressed (the console lives on another tab)
+function flash(el,t){if(!el)return;let sp=el.nextElementSibling;if(!sp||!sp.classList.contains('fl')){sp=document.createElement('span');sp.className='fl';el.after(sp)}sp.textContent=t;sp.className='fl '+(/^\s*(err|error|request failed|no answer)/i.test(t)?'bad':'ok');clearTimeout(sp._t);sp._t=setTimeout(()=>{sp.textContent=''},5000)}
+$('#ad_change').onclick=()=>{const c=$('#ad_cur').value,n=$('#ad_new').value,n2=$('#ad_new2').value;const b=$('#ad_change');if(!c||!n){flash(b,'fill in the current and new password');return}if(n!==n2){flash(b,'the two new passwords differ');return}if(/\s/.test(n)||n.length<4||n.length>32){flash(b,'4-32 characters, no spaces');return}
+send('web.password.change '+c+' '+n).then(t=>{flash(b,t);if(/^OK/.test(t)){$('#ad_cur').value=$('#ad_new').value=$('#ad_new2').value='';setTimeout(()=>{$('#ad_mode').textContent='Password changed - sign in again when the browser asks.';status()},600)}})};
+$('#ad_clear').onclick=async()=>{if(!await ask('Clear the dedicated web password and use the repeater admin password for the web login?'))return;send('web.password.clear').then(t=>{flash($('#ad_clear'),t);setTimeout(status,600)})};
+// location.replace() to the same URL with a #hash is a fragment navigation, not a reload (Andy: 'Reload page does nothing');
+// in the app the page is a string the WebView was given, so ask the app to fetch the new one over BLE instead.
+$('#stale_btn').onclick=()=>{if(window.RptBridge){try{RptBridge.postMessage(JSON.stringify({note:'reload'}))}catch(e){}return}location.reload()};
+$('#cf').onsubmit=e=>{e.preventDefault();const c=$('#cmd').value.trim();if(c)send(c)};
+document.querySelectorAll('button.q').forEach(b=>b.onclick=async()=>{if(b.dataset.confirm&&!await ask(b.dataset.confirm))return;send(b.dataset.c)});
+const FALLBACK_PRESETS=[["Australia",915.8,250.0,10,5],["Australia (Narrow)",916.575,62.5,7,7],["Australia (Mid)",915.075,125.0,9,5],["Australia: SA, WA",923.125,62.5,8,8],["Australia: QLD",923.125,62.5,8,5],["Brazil",923.125,62.5,8,8],["Canada",910.525,62.5,7,5],["Costa Rica",910.525,125.0,11,5],["EU/UK (Narrow)",869.618,62.5,8,8],["EU/UK (Deprecated)",869.525,250.0,11,5],["Czech Republic (Narrow)",869.432,62.5,7,5],["EU 433MHz (Long Range)",433.65,250.0,11,5],["EU 433MHz (Narrow)",433.65,62.5,8,8],["Hungary",869.618,62.5,7,5],["Netherlands",869.618,62.5,7,5],["Netherlands (Limburg)",869.618,62.5,8,8],["New Zealand (Narrow)",917.375,62.5,7,5],["New Zealand (Gisborne)",917.375,250.0,11,5],["Portugal 433",433.375,62.5,9,6],["Portugal 868",869.618,62.5,7,6],["Slovakia",869.618,62.5,7,5],["Switzerland",869.618,62.5,8,8],["USA",910.525,62.5,7,5],["USA - Philadelphia (PhillyMesh)",902.25,500.0,11,5],["USA - Southern California",927.875,62.5,7,5],["Vietnam (Narrow)",920.25,62.5,8,5],["Vietnam (Deprecated)",920.25,250.0,11,5]];
+let presets=FALLBACK_PRESETS;
+function fillPresets(){const sel=$('#r_preset');sel.innerHTML='<option value="">Custom</option>'+presets.map((p,i)=>`<option value="${i}">${p[0]} · ${p[1]} MHz · BW${p[2]} · SF${p[3]} · CR${p[4]}</option>`).join('');matchPreset()}
+function matchPreset(){const f=+$('#r_freq').value,b=+$('#r_bw').value,sf=+$('#r_sf').value,cr=+$('#r_cr').value;const i=presets.findIndex(p=>Math.abs(p[1]-f)<0.0005&&Math.abs(p[2]-b)<0.01&&p[3]===sf&&p[4]===cr);$('#r_preset').value=i>=0?String(i):''}
+$('#r_preset').onchange=e=>{const p=presets[+e.target.value];if(!p)return;$('#r_freq').value=p[1];$('#r_bw').value=p[2];$('#r_sf').value=p[3];$('#r_cr').value=p[4]};
+$('#r_save').onclick=()=>send(`set radio ${$('#r_freq').value.trim()},${$('#r_bw').value.trim()},${$('#r_sf').value.trim()},${$('#r_cr').value.trim()}`).then(t=>{flash($('#r_save'),t);prefs()});
+(async()=>{try{const r=await fetch('https://api.meshcore.nz/api/v1/config',{cache:'no-store'});const e=(await r.json()).config.suggested_radio_settings.entries;if(e&&e.length){presets=e.map(p=>[p.title,+p.frequency,+p.bandwidth,+p.spreading_factor,+p.coding_rate]);}}catch(x){}fillPresets()})();
+const setv=(id,v)=>{const el=$(id);if(el&&document.activeElement!==el)el.value=v};
+async function regions(){if(tab!=='settings')return;try{const r=await fetch(location.origin+'/api/regions',{cache:'no-store'});if(!r.ok)return;const j=await r.json();
+const rows=j.tree.split('|').filter(l=>l.trim()).map(l=>{const depth=l.length-l.replace(/^ +/,'').length;let t=l.trim();const flood=/ F$/.test(t);t=t.replace(/ F$/,'');const home=/\^$/.test(t);t=t.replace(/\^$/,'');return{depth,name:t,flood,home}});
+window.rgRows=rows;window.rgDefault=j.default;window.rgHome=j.home;
+const names=rows.filter(x=>x.name!=='*').map(x=>x.name);
+$('#rg_n').textContent='· '+j.count+' region'+(j.count===1?'':'s');
+setv('#rg_root',j.root_flood?'allowf':'denyf');
+$('#rg_def').innerHTML='<option value="<null>">none</option>'+names.map(n=>`<option>${n}</option>`).join('');setv('#rg_def',j.default||'<null>');
+$('#rg_home').innerHTML='<option value="*">*</option>'+names.map(n=>`<option>${n}</option>`).join('');setv('#rg_home',j.home||'*');
+$('#rg_parent').innerHTML='<option value="">under *</option>'+names.map(n=>`<option>${n}</option>`).join('');
+$('#rg_list').innerHTML=(names.length?'<div class="rg hd"><span>region</span><span>floods</span><span></span><span></span><span></span></div>':'<span class="dim">no regions defined - plain (unscoped) floods only</span>')+rows.filter(x=>x.name!=='*').map(x=>`<div class="rg"><span style="padding-left:${(x.depth-1)*16}px">${x.name}${x.home?' <span class="tag">home</span>':''}${x.name===j.default?' <span class="tag">default</span>':''}</span><span class="${x.flood?'ok':'bad'}">${x.flood?'allowed':'denied'}</span><button class="q" data-c="region ${x.flood?'denyf':'allowf'} ${x.name}">${x.flood?'Deny':'Allow'}</button><button class="q" data-c="region home ${x.name}">Home</button><button class="q" data-c="region remove ${x.name}" data-confirm="Remove region ${x.name}?">Remove</button></div>`).join('');
+$('#rg_list').querySelectorAll('button').forEach(b=>b.onclick=async()=>{const c=b.dataset.c;if(c.startsWith('region remove ')){rgRemove(c.slice(14),b);return}if(b.dataset.confirm&&!await ask(b.dataset.confirm))return;rgcmd(c,b)});}catch(e){}}
+async function rgcmd(c,btn){const t=await send(c);flash(btn&&btn.closest('#rg_list')?$('#rg_anchor'):(btn||$('#rg_anchor')),t);await send('region save');regions();return t}
+// Remove cascades: upstream refuses a region that still has children ("Err - not empty"),
+// so take the subtree deepest-first, and unhook default/home if they point into it.
+async function rgRemove(name,btn){const rows=window.rgRows||[];const i=rows.findIndex(x=>x.name===name);if(i<0)return;
+const sub=[];for(let k=i+1;k<rows.length&&rows[k].depth>rows[i].depth;k++)sub.push(rows[k]);
+if(!await ask('Remove region '+name+(sub.length?' and its '+sub.length+' sub-region'+(sub.length>1?'s':''):'')+'?'))return;
+const all=[...sub].sort((a,b)=>b.depth-a.depth).map(x=>x.name).concat([name]);
+if(all.includes(window.rgDefault))await send('region default <null>');if(all.includes(window.rgHome))await send('region home *');
+let last='OK';for(const n of all){last=await send('region remove '+n);if(/^\s*err/i.test(last)){flash($('#rg_anchor'),last+' ('+n+')');await send('region save');regions();return}}
+await send('region save');flash($('#rg_anchor'),'removed '+all.length+' region'+(all.length>1?'s':''));regions()}
+$('#rg_root_sv').onclick=()=>rgcmd('region '+$('#rg_root').value+' *',$('#rg_root_sv'));
+$('#rg_def_sv').onclick=()=>send('region default '+$('#rg_def').value).then(t=>{flash($('#rg_def_sv'),t);regions()});
+$('#rg_home_sv').onclick=()=>rgcmd('region home '+$('#rg_home').value,$('#rg_home_sv'));
+$('#rg_add').onclick=()=>{const n=$('#rg_name').value.trim();if(!n)return;const p=$('#rg_parent').value;rgcmd('region put '+n+(p?' '+p:''),$('#rg_add')).then(t=>{if(!/^\s*err/i.test(t))$('#rg_name').value=''})};
+$('#rg_def_go').onclick=()=>{const d=$('#rg_def_txt').value.trim();if(!d)return;rgcmd('region def '+d,$('#rg_def_go')).then(t=>{if(!/^\s*err/i.test(t))$('#rg_def_txt').value=''})};
+async function prefs(){if(tab!=='settings')return;try{const r=await fetch(location.origin+'/api/prefs',{cache:'no-store'});if(!r.ok)return;const p=await r.json();
+setv('#r_freq',p.freq.toFixed(3));setv('#r_bw',+p.bw.toFixed(2));setv('#r_sf',p.sf);setv('#r_cr',p.cr);matchPreset();
+setv('#s_tx',p.tx);setv('#s_rxgain',p.rxgain?'on':'off');setv('#s_name',p.name);setv('#s_lat',p.lat);setv('#s_lon',p.lon);setv('#s_owner',p.owner);setv('#s_guest',p.guest);
+setv('#s_repeat',p.repeat?'on':'off');setv('#s_adv',p.adv_int);setv('#s_fadv',p.fadv_int);setv('#s_fmax',p.fmax);setv('#s_fmaxu',p.fmax_uns);setv('#s_fmaxa',p.fmax_adv);
+setv('#s_loop',['off','minimal','moderate','strict'][p.loop]||'off');setv('#s_hash',String(p.hash_mode));
+setv('#s_af',p.af);setv('#s_rxd',p.rxdelay);setv('#s_txd',p.txdelay);setv('#s_dtxd',p.dtxdelay);setv('#s_int',p.int_thresh);setv('#s_cad',p.cad?'on':'off');setv('#s_agc',p.agc);setv('#s_macks',p.multi_acks);setv('#s_adc',p.adc_mult);
+setv('#s_tr',p.transport);setv('#s_obs',p.observer?'on':'off');setv('#s_pin',p.ble_pin||'');setv('#s_ssid',p.ssid);
+setv('#s_air',p.airlink?'on':'off');setv('#s_airpub',p.airlink_pub?'on':'off');setv('#s_airch',p.airlink_ch||'');
+$('#f_femrx').hidden=!p.fem_rx_ctl;if(p.fem_rx_ctl)setv('#s_femrx',p.fem_rx?'on':'off');$('#f_femtx').hidden=!p.fem_tx_ctl;if(p.fem_tx_ctl)setv('#s_femtx',p.fem_tx?'on':'off');}catch(e){}}
+function rebootBlurb(j){if(!j||!j.running||j.running===j.transport)return '';const stays=j.eth&&j.eth.up&&location.hostname===j.eth.ip;
+if(j.transport==='ble'&&!stays)return 'Restarting into Bluetooth mode. This page will not come back: open the MeshOS app, Tools > Manage a repeater, and connect to "MeshOS repeater '+j.id+'".';return ''}
+async function rebootNow(){const j=lastStatus;const blurb=rebootBlurb(j);const sw=!!(j&&j.running&&j.running!==j.transport);
+if(!await ask((sw?'The transport switches to '+(j.transport==='ble'?'Bluetooth':'WiFi')+' on this restart.\n\n':'')+'Reboot the repeater now?','Reboot'))return;
+rebooting=true;const b=$('#s_reboot');b.disabled=true;b.textContent='Rebooting…';
+if(sw&&j.transport==='wifi'&&window.RptBridge){try{RptBridge.postMessage(JSON.stringify({note:'going-wifi'}))}catch(e){}}
+fetch(location.origin+'/api/cmd',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'cmd=reboot'}).catch(()=>{});
+const m=$('#s_reboot_msg');$('#pending').style.display='none';
+if(blurb){m.innerHTML='<span class="ok">'+escH(blurb)+'</span>';$('#out').textContent='> reboot\n'+blurb;return}
+const t0=Date.now();const tick=setInterval(()=>{m.textContent='rebooting… '+Math.round((Date.now()-t0)/1000)+' s'},1000);const poll=async()=>{if(Date.now()-t0>90000){clearInterval(tick);m.textContent='no answer after 90 s - check the device';b.textContent='Reboot now';b.disabled=false;rebooting=false;return}
+const ac=new AbortController();const tm=setTimeout(()=>ac.abort(),2500);try{const r=await fetch(location.origin+'/api/status',{cache:'no-store',signal:ac.signal});if(r.ok){const j=await r.json();if(j.uptime<(Date.now()-t0)/1000){clearTimeout(tm);clearInterval(tick);b.disabled=false;b.textContent='Reboot now';const secs=Math.round((Date.now()-t0)/1000);m.innerHTML='<span class="ok">back up after '+secs+' s</span>';$('#out').textContent='> reboot\nBack up after '+secs+' s';rebooting=false;statusMiss=0;status();prefs();return}}}catch(e){}clearTimeout(tm);setTimeout(poll,1500)};setTimeout(poll,3000)}
+$('#s_reboot').onclick=rebootNow;$('#pend_btn').onclick=()=>{showTab('settings');rebootNow()};
+document.querySelectorAll('button.sv').forEach(b=>b.onclick=()=>{const el=b.parentElement.querySelector('[data-cmd]');const v=el.value.trim();if(v==='')return;send(el.dataset.cmd+v).then(t=>{flash(b,t);if(el.type==='password')el.value='';prefs()})});
+$('#d_copy').onclick=()=>{const r=document.createRange();r.selectNodeContents($('#d_pub'));const sel=getSelection();sel.removeAllRanges();sel.addRange(r);let ok=false;try{ok=document.execCommand('copy')}catch(e){}flash($('#d_copy'),ok?'copied':'Err - select the key and copy it')};
+prefs();regions();setInterval(prefs,15000);
+const hx=h=>('0'+h.toString(16).toUpperCase()).slice(-2);
+async function chans(){if(tab!=='channels')return;try{const r=await fetch(location.origin+'/api/channels',{cache:'no-store'});if(!r.ok)return;const j=await r.json();
+const blocked=new Set(j.blocked);$('#ch_pub').checked=!blocked.has(j.public);
+$('#ch_blocked').innerHTML=j.blocked.length?j.blocked.map(h=>`<span class="chip">${h===j.public?'Public channel':'channel'} ${hx(h)}<b data-h="${h}" title="unblock">&times;</b></span>`).join(''):'<span class="dim">no channels blocked</span>';
+$('#ch_blocked').querySelectorAll('b').forEach(b=>b.onclick=()=>send('unblock.channel '+hx(+b.dataset.h)).then(chans));
+const max=j.chans.length?j.chans[0][1]:1;
+$('#ch_bars').innerHTML=j.chans.length?j.chans.map(([h,c])=>{const bl=blocked.has(h);return `<div class="bar${bl?' blk':''}"><span>${hx(h)}</span><span class="dim">${h===j.public?'Public channel':bl?'blocked':'channel'}</span><i style="width:${Math.max(2,c/max*100)}%"></i><span>${c}</span><button class="q" data-h="${h}" data-b="${bl?1:0}">${bl?'Unblock':'Block'}</button></div>`}).join(''):'<span class="dim">no group traffic heard yet</span>';
+$('#ch_bars').querySelectorAll('button').forEach(b=>b.onclick=()=>send((b.dataset.b==='1'?'unblock.channel ':'block.channel ')+hx(+b.dataset.h)).then(t=>{flash(b,t);chans()}));
+const t=j.types;$('#ch_types').textContent=`heard since boot: ${t[1]} group · ${t[0]} adverts · ${t[2]} direct msgs · ${t[3]} acks · ${t[4]} other`;
+$('#ch_n').textContent='· '+j.chans.length+' hashes seen';
+const eb=j.entry_blocked||[],en=j.entries||[];
+$('#en_blocked').innerHTML=eb.length?eb.map(([h,d,nm])=>`<span class="chip">entry ${h}${nm?' · '+escH(nm):''} · ${d} not repeated<b data-e="${h}" title="unblock">&times;</b></span>`).join(''):'<span class="dim">no entry repeaters blocked</span>';
+$('#en_blocked').querySelectorAll('b').forEach(b=>b.onclick=()=>send('unblock.entry '+b.dataset.e).then(chans));
+const emax=en.length?en[0][1]:1;
+$('#en_bars').innerHTML=en.length?en.map(([h,c,nm])=>{const H=hx(h),bl=eb.some(r=>r[0]===H),part=!bl&&eb.some(r=>r[0].startsWith(H));return `<div class="bar${bl?' blk':''}"><span>${H}</span><span class="dim" title="${escH(nm||'')}">${nm?escH(nm):bl?'blocked':part?'partly blocked':'repeater'}</span><i style="width:${Math.max(2,c/emax*100)}%"></i><span>${c}</span><button class="q" data-h="${H}" data-n="${escH(nm||'')}" data-b="${bl?1:0}">${bl?'Unblock':'Block'}</button></div>`}).join(''):'<span class="dim">no channel messages relayed to us yet</span>';
+$('#en_bars').querySelectorAll('button').forEach(b=>b.onclick=async()=>{const t=b.dataset.b==='1'?await send('unblock.entry '+b.dataset.h):await blockEntryAsk(b.dataset.h,b.dataset.n);if(t){flash(b,t);chans()}});
+$('#en_n').textContent=en.length?'· '+en.length+' seen':'';}catch(e){}}
+// Block entry repeater: everyone whose channel messages come in through that repeater is cut off, not only the
+// spammer, so say so before doing it. Returns the CLI reply, '' when cancelled.
+async function blockEntryAsk(h,nm){if(!await ask(`Block channel messages that got onto the mesh through repeater ${h}${nm?' ('+nm+')':''}?\n\nThis repeater will not repeat them or pass them to AirLink phones. Everyone whose messages come in through ${h} is blocked too, not only the spammer. Direct messages, acks and adverts still go through.`,'Block'))return '';return send('block.entry '+h)}
+async function entryName(h){try{const r=await fetch(location.origin+'/api/channels',{cache:'no-store'});const j=await r.json();const b=parseInt(h.slice(0,2),16);const e=(j.entries||[]).find(x=>x[0]===b);return e&&e[2]||''}catch(e){return ''}}
+$('#en_add').onsubmit=async e=>{e.preventDefault();const v=$('#en_in').value.trim().replace(/^0x/i,'').replace(/\s/g,'').toUpperCase();if(!v)return;const btn=$('#en_add button');
+if(!/^([0-9A-F]{2}){1,3}$/.test(v)){flash(btn,"Err - the repeater's ID in hex, 1-3 bytes (A0 or A07E)");return}
+const t=await blockEntryAsk(v,await entryName(v));if(t){flash(btn,t);$('#en_in').value='';chans()}};
+$('#ch_pub').onchange=e=>send('set repeat.public '+(e.target.checked?'on':'off')).then(chans);
+$('#ch_add').onsubmit=e=>{e.preventDefault();const v=$('#ch_in').value.trim();if(!v)return;send('block.channel '+v).then(()=>{$('#ch_in').value='';chans()})};
+$('#ch_clear').onclick=()=>send('clear chanstats').then(chans);
+chans();setInterval(chans,4000);
+graph();setInterval(graph,5000);
+function airCard(title,txp,rxp,sub){return `<div class="card"><b>${title}</b><span>TX ${txp.toFixed(2)}% · RX ${rxp.toFixed(2)}%</span><div class="ub"><i style="width:${Math.min(100,txp)}%"></i></div><div class="ub rx"><i style="width:${Math.min(100,rxp)}%"></i></div><small class="dim">${sub}</small></div>`}
+function renderAir(){const j=window.lastAir;if(!j)return;const a=j.air,up=Math.max(1,j.uptime);
+const cards=[airCard('Since boot',a.tx_ms/10/up,a.rx_ms/10/up,`TX ${(a.tx_ms/1000).toFixed(1)} s · RX ${(a.rx_ms/1000).toFixed(1)} s over ${fmtUp(up)}`),
+airCard('Last 5 minutes',a.tx5/10/a.s5,a.rx5/10/a.s5,a.s5<290?`over the ${fmtUp(a.s5)} recorded so far`:`TX ${(a.tx5/1000).toFixed(1)} s · RX ${(a.rx5/1000).toFixed(1)} s`),
+airCard('Last 24 hours',a.tx24/10/a.s24,a.rx24/10/a.s24,a.s24<86000?`over the ${fmtUp(a.s24)} recorded so far`:`TX ${(a.tx24/1000).toFixed(0)} s · RX ${(a.rx24/1000).toFixed(0)} s`)];
+if(j.pkts){const p=j.pkts;cards.push(`<div class="card"><b>Packets since boot</b><span>RX ${p.rx_flood+p.rx_direct} · TX ${p.tx_flood+p.tx_direct}</span><small class="dim">rx flood ${p.rx_flood} · direct ${p.rx_direct} — tx flood ${p.tx_flood} · direct ${p.tx_direct}</small></div>`)}
+$('#air').innerHTML=cards.join('')}
+let nwData=null;
+async function graph(){if(tab!=='network')return;try{const r=await fetch(location.origin+'/api/graph',{cache:'no-store'});if(!r.ok)return;nwData=await r.json();renderGraph()}catch(e){}if(!fdTimer)fdPoll()}
+function renderGraph(){const j=nwData;if(!j)return;const H=+$('#nw_hops').value;const svg=$('#nw');
+const N=j.n.map((a,i)=>({i,parent:a[0],id:a[1],size:a[2],kind:a[3],count:a[4],lsnr:a[5]/4,bsnr:a[6]/4,age:a[7]}));
+const depth=[0];const dep=i=>{if(depth[i]!==undefined)return depth[i];let d=0,k=i,g=0;while(k&&depth[k]===undefined&&g++<600){k=N[k].parent;d++}return depth[i]=(depth[k]||0)+d};for(let i=1;i<N.length;i++)dep(i);
+// siblings: a shorter hash that is a prefix of a longer sibling (same parent, same kind) is the same node
+const canon=N.map(n=>n.i);for(let i=1;i<N.length;i++){const n=N[i];let best=null;for(let k=1;k<N.length;k++){const m=N[k];if(k!==i&&m.parent===n.parent&&m.kind===n.kind&&m.size>n.size&&m.id.startsWith(n.id)&&(!best||m.size>best.size))best=m}if(best)canon[i]=best.i}
+const res=i=>{let k=0;while(canon[i]!==i&&k++<4)i=canon[i];return i};
+const E=N.map(n=>({...n}));for(let i=1;i<N.length;i++){const c=res(i);if(c===i)continue;E[c].verified=true;E[c].count+=N[i].count;E[c].bsnr=Math.max(E[c].bsnr,N[i].bsnr);if(N[i].age<E[c].age){E[c].age=N[i].age;E[c].lsnr=N[i].lsnr}E[i].merged=true}
+for(let i=1;i<N.length;i++)E[i].parent=res(N[i].parent);
+const kids={};for(let i=1;i<N.length;i++){const n=E[i];if(n.merged||depth[i]>H+1)continue;(kids[n.parent]=kids[n.parent]||[]).push(i)}
+// merge duplicate siblings created by re-parenting (same id under the same parent)
+for(const p in kids){const seen={};kids[p]=kids[p].filter(i=>{const k=E[i].kind+':'+E[i].id;if(seen[k]!==undefined){const t=E[seen[k]];t.count+=E[i].count;if(E[i].verified)t.verified=true;if(E[i].age<t.age)t.age=E[i].age;(kids[i]||[]).forEach(c=>{E[c].parent=seen[k];(kids[seen[k]]=kids[seen[k]]||[]).push(c)});delete kids[i];return false}seen[k]=i;return true})}
+Object.values(kids).forEach(l=>l.sort((a,b)=>E[b].count-E[a].count||(E[a].id<E[b].id?-1:1)));
+const ROW=36,COL=200,OX=44,OY=58;let row=0;const x={},y={};
+const place=i=>{const ks=kids[i]||[];x[i]=depth[i]*COL;if(!ks.length){y[i]=row*ROW;row++;return}ks.forEach(place);y[i]=(y[ks[0]]+y[ks[ks.length-1]])/2};place(0);
+const branch=i=>{let k=0;while(i&&E[i].parent!==0&&k++<80)i=E[i].parent;return i};
+const pathVerified=i=>{let k=0;while(i&&k++<80){if(!E[i].verified)return false;i=E[i].parent}return true};
+const anchors=kids[0]||[];const hue={};anchors.forEach((i,k)=>hue[i]=(k*137.508)%360);const colOf=i=>{const b=branch(i);return hue[b]!==undefined?`hsl(${hue[b].toFixed(0)},75%,62%)`:'#6b7280'};
+const drawn=[0,...Object.keys(kids).flatMap(p=>kids[p])];const maxDepth=Math.max(0,...drawn.map(i=>depth[i]));
+const W=(maxDepth+1)*COL+OX+140,Ht=Math.max(1,row)*ROW+OY+28;svg.setAttribute('width',W);svg.setAttribute('height',Ht);svg.setAttribute('viewBox',`0 0 ${W} ${Ht}`);
+const maxC=Math.max(1,...drawn.filter(i=>i).map(i=>E[i].count));const FRESH=20;let out='';
+for(let d=1;d<=maxDepth;d++)out+=`<text x="${d*COL+OX-6}" y="16" fill="#6b7280">${d-1} hop${d===2?'':'s'}</text>`;
+for(const p in kids)kids[p].forEach(c=>{const x1=x[p]+OX+8,y1=y[p]+OY,x2=x[c]+OX-8,y2=y[c]+OY,mx=(x1+x2)/2;const w=1+3*Math.log(1+E[c].count)/Math.log(1+maxC);const col=colOf(c);const fresh=E[c].age<FRESH;const d=`M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}`;
+if(fresh)out+=`<path d="${d}" fill="none" stroke="#fff" stroke-opacity="0.5" stroke-width="${(w+4).toFixed(1)}"/>`;
+out+=`<path d="${d}" fill="none" stroke="${col}" stroke-opacity="0.85" stroke-width="${w.toFixed(1)}"><title>${E[c].id} → ${E[p].id==null?'us':E[p].id} · ${E[c].count} packet${E[c].count===1?'':'s'} · last ${fmtUp(E[c].age)} ago${fresh?' · NEW':''}</title></path>`});
+drawn.forEach(i=>{const n=E[i];const px=x[i]+OX,py=y[i]+OY;const me=i===0;const col=me?'#f97316':colOf(i);const fresh=!me&&n.age<FRESH;const dim=n.age>1800?0.5:1;
+const halo=fresh?`<circle cx="${px}" cy="${py}" r="11" fill="none" stroke="#fff" stroke-width="2" stroke-opacity="0.8"/>`:'';
+const shape=halo+(n.kind===1&&!me?`<rect x="${px-6}" y="${py-6}" width="12" height="12" fill="${col}" opacity="${dim}"/>`:`<circle cx="${px}" cy="${py}" r="${me?9:6}" fill="${col}" opacity="${dim}"/>`);
+const pv=!me&&n.verified&&pathVerified(i);const lbl=me?'us · '+j.self:n.id+(n.verified?` <tspan fill="${pv?'#4ade80':'#8b95a7'}">&#10003;</tspan>`:'')+(n.parent===0?` <tspan fill="#8b95a7">${n.lsnr.toFixed(1)} dB</tspan>`:'')+` <tspan fill="#6b7280">×${n.count}</tspan>`;
+out+=`<g>${shape}<text x="${px-6}" y="${py-12}" fill="#e6e9ee">${lbl}</text><title>${me?'this repeater':(n.kind===1?'originator':'repeater')} ${n.id}${me?'':` · ${depth[i]-1} hop${depth[i]===2?'':'s'} before us · ${n.count} packet${n.count===1?'':'s'} on this path · last ${fmtUp(n.age)} ago`}${n.parent===0&&!me?` · SNR last ${n.lsnr.toFixed(1)} / best ${n.bsnr.toFixed(1)} dB`:''}${n.verified?(pv?' · VERIFIED: the whole path back to us was also seen with longer hashes':' · verified: this node was also seen with a longer hash on this path'):''}</title></g>`});
+svg.innerHTML=out;$('#nw_legend').innerHTML=anchors.map(i=>`<span style="color:${colOf(i)}">&#9679; ${E[i].id}</span>`).join('')+(anchors.length?'<span class="dim">= branch colours (the node each path came in through)</span>':'');
+$('#nw_n').textContent='· '+(drawn.length-1)+' path nodes shown · '+anchors.length+' heard directly'+(j.evicted?' · '+j.evicted+' one-off paths forgotten':'')+(j.full?' · table full':'')}
+$('#nw_hops').oninput=e=>{$('#nw_hops_v').textContent=e.target.value+' hop'+(e.target.value==='1'?'':'s');renderGraph()};
+$('#nw_clear').onclick=async()=>{if(await ask('Forget everything learned about the network?','Forget'))send('graph.clear').then(graph)};
+const TYPES={0:'REQ',1:'RESP',2:'TXT',3:'ACK',4:'ADVERT',5:'GRP_TXT',6:'GRP_DATA',7:'ANON_REQ',8:'PATH',9:'TRACE',10:'MULTI',11:'CTRL',15:'RAW'};
+const ROUTES={0:'T-FLOOD',1:'FLOOD',2:'DIRECT',3:'T-DIRECT'};
+let plogSince=0,plogPaused=false,plogRows=0,plogBusy=false;
+function ts(t){if(!t||t<1600000000)return '--:--:--';return new Date(t*1000).toTimeString().slice(0,8)}
+async function plog(){if(plogPaused||tab!=='packets'||plogBusy)return;plogBusy=true;try{const r=await fetch(location.origin+'/api/log?since='+plogSince,{cache:'no-store'});if(!r.ok)return;const j=await r.json();
+const tb=$('#plog tbody');for(const e of j.e){const [seq,t,dir,type,route,len,hops,snr4,rssi,path,ch,fl=0,hs=1]=e;if(seq<=plogSince)continue;plogSince=seq;
+const nr=fl&1?'not repeated: it came in through a blocked entry repeater':fl&2?'not repeated: blocked channel':'';
+const d=(dir===0?'<span class="rx">RX &darr;</span>':dir===1?'<span class="tx">TX &uarr;</span>':'<span class="txf">TX &#10007;</span>')+(nr?` <span class="bad" title="${nr}">blocked</span>`:'');
+// path hashes grouped by their real size; a channel message's first hop (its entry repeater) can be blocked from here
+const hops2=(path.match(new RegExp('.{1,'+(2*hs)+'}','g'))||[]);const ent=dir===0&&(type===5||type===6)&&(route===0||route===1)&&hops>0&&hops2.length;
+const pth=type===9?(path.match(/../g)||[]).map(b=>{let v=parseInt(b,16);if(v>127)v-=256;return (v/4).toFixed(1)}).join(' / ')+(path?' dB':''):ent?`<span class="eh" data-e="${hops2[0]}" title="block channel messages that came in through ${hops2[0]}">${hops2[0]}</span> `+hops2.slice(1).join(' '):hops2.join(' ');
+const tr=document.createElement('tr');tr.innerHTML=`<td>${ts(t)}</td><td>${d}</td><td>${TYPES[type]||type}</td><td>${ROUTES[route]||route}</td><td>${hops}</td><td>${len}</td><td>${dir===0?(snr4/4).toFixed(1):''}</td><td>${dir===0?rssi:''}</td><td>${ch===255||ch===undefined?'':hx(ch)}</td><td class="dim">${pth}</td>`;
+tb.prepend(tr);plogRows++;}
+while(tb.children.length>150)tb.removeChild(tb.lastChild);$('#plog_n').textContent=plogRows?'\u00b7 '+plogRows+' since load':'';}catch(e){}finally{plogBusy=false}}
+$('#plog_pause').onclick=()=>{plogPaused=!plogPaused;$('#plog_pause').textContent=plogPaused?'Resume':'Pause';if(!plogPaused)plog()};
+$('#plog_clear').onclick=()=>{$('#plog tbody').innerHTML='';plogRows=0;$('#plog_n').textContent=''};
+$('#plog tbody').onclick=async e=>{const a=e.target.closest('.eh');if(!a)return;const h=a.dataset.e;const t=await blockEntryAsk(h,await entryName(h));if(t)flash(a,t)};
+plog();setInterval(plog,1500);
+// ---- firmware update (device fetches via the MeshOS site, page shows progress) ----
+let fwActive=false,fwWatch=false,fwDoneMsg='';
+const escH=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const fwMB=b=>(b/1048576).toFixed(2)+' MB';
+const fmtAgo=s=>s<60?s+' s ago':s<3600?Math.floor(s/60)+' min ago':Math.floor(s/3600)+' h ago';
+const FW_BUSY=['checking','downloading','verifying','installing','done'];
+function airlinkCard(j){const a=j.airlink;if(!a)return '';if(!a.on)return card('AirLink bridge','off','dim');
+if(a.capable===false)return card('AirLink bridge','on <span class="dim">- not available on this board (needs PSRAM)</span>','dim');
+if(!a.running)return card('AirLink bridge','on <span class="dim">- starts after a restart</span>','dim');
+const sg=a.sig||[],ph=(a.names||[]).map((n,i)=>{const s=sg[i]||[0,0,0],r=s[0],c=!r?'dim':r>=-80?'ok':r<-90?'bad':'',f=' style="font-size:inherit"';
+return '<small>'+escH(n||'?')+': <span class="'+c+'"'+f+'>'+(r?r+' dBm':'signal …')+'</span>'+(s[1]&&s[1]<r?' <span class="dim"'+f+'>(weakest '+s[1]+')</span>':'')+(s[2]?' · '+Math.round(s[2]*1.25)+' ms link':'')+'</small>'}).join('');
+const ec=(a.echo_lora||0)+(a.echo_heard||0);
+return '<div class="card"><b>AirLink bridge</b><span class="'+(a.peers?'ok':'')+'">'+a.peers+' phone'+(a.peers===1?'':'s')+'</span>'+ph+'<small class="dim">'+a.to_lora+' to LoRa · '+a.to_phones+' to phones · '+a.relayed+' between phones'+(ec?' · '+ec+(ec===1?' echo':' echoes')+' kept off LoRa':'')+(a.entry_blocked?' · '+a.entry_blocked+' from blocked entry repeaters not passed on':'')+'</small></div>'}
+function fwCard(j){const f=j.fw;if(!f)return '';if(FW_BUSY.includes(f.state))return card('Firmware','v'+f.cur+' · <a href="#update">'+(f.state==='checking'?'checking for updates':f.state==='downloading'?'updating '+Math.max(0,f.pct)+'%':f.state)+'</a>');
+return card('Firmware','v'+f.cur+(f.avail?' · <a href="#update">v'+escH(f.latest)+' available</a>':f.state==='failed'?' · <a href="#update">update failed</a>':f.checked>=0?' · up to date':''),f.avail?'ok':f.state==='failed'?'bad':'')}
+function fwRender(j){const f=j.fw;window.lastFw=f;const cur=$('#fw_cur'),lat=$('#fw_latest'),go=$('#fw_go'),msg=$('#fw_msg'),chk=$('#fw_check'),bar=$('#fw_bar_row');
+cur.innerHTML='v'+escH(f.cur)+' <small class="dim">build '+escH(j.build||'')+' · '+escH(f.key)+(f.custom?' · custom manifest':'')+'</small>';
+const busy=FW_BUSY.includes(f.state);chk.disabled=busy||fwWatch;
+if(f.latest==='custom'){lat.textContent='custom image';lat.className='';}
+else if(f.checked<0){const none=f.check_failed&&/^no .*entry/.test(f.err);lat.textContent=none?'nothing published for this board yet':f.check_failed?'check failed':'not checked yet';lat.className=f.check_failed&&!none?'bad':'dim';}
+else{lat.innerHTML='v'+escH(f.latest)+' <small class="dim">· '+fwMB(f.size)+' · checked '+fmtAgo(f.checked)+'</small>';lat.className=f.avail?'ok':'';}
+$('#fw_notes_row').hidden=!f.notes;$('#fw_notes').textContent=f.notes;
+if(fwWatch)return;
+if(!busy){fwActive=false;
+if(fwDoneMsg)msg.innerHTML=fwDoneMsg;
+else if(f.state==='failed')msg.innerHTML='<span class="bad">Failed: '+escH(f.err)+'</span>';
+else if(f.check_failed&&f.checked<0)msg.innerHTML='<span class="dim">'+(/^no .*entry/.test(f.err)?'No update to offer: '+escH(f.err)+'.':'Could not read the manifest ('+escH(f.err)+'). Does the repeater have internet access?')+'</span>';
+else if(f.checked<0)msg.innerHTML='<span class="dim">'+(window.RptBridge?'Over Bluetooth the app checks meshcore.co.uk and sends the update to the repeater: press Check now.':'Check for updates first.')+'</span>';
+else if(f.avail)msg.innerHTML='v'+escH(f.latest)+' is ready to install.';
+else msg.innerHTML='<span class="dim">Up to date.</span>';
+go.disabled=window.RptBridge?false:(f.checked<0||!f.latest);go.textContent=window.RptBridge?'Update via app':!f.latest?'Install':f.avail?'Install v'+f.latest:'Reinstall v'+f.latest;go.className=f.avail?'':'q';bar.hidden=true;return}
+fwActive=true;go.disabled=true;go.textContent='Installing…';
+const label={checking:'Checking meshcore.co.uk…',downloading:f.pct<0?'Downloading '+fwMB(f.done)+'…':'Downloading '+f.pct+'% · '+fwMB(f.done)+' of '+fwMB(f.total),verifying:'Verifying sha256…',installing:'Finishing the install…',done:'Installed · rebooting…'}[f.state];
+msg.textContent=label;bar.hidden=f.state==='checking';$('#fw_fill').style.width=Math.max(0,f.pct)+'%';$('#fw_pct').textContent=f.pct<0?'':f.pct+'%';
+if(f.state==='done')fwWatchReboot();}
+function fwWatchReboot(){if(fwWatch)return;fwWatch=true;const t0=Date.now();const msg=$('#fw_msg');
+const poll=async()=>{const el=Math.round((Date.now()-t0)/1000);msg.textContent='Installed · rebooting… '+el+' s';
+if(el>120){fwWatch=false;fwActive=false;msg.innerHTML='<span class="bad">No answer after 120 s - check the repeater</span>';return}
+const ac=new AbortController();const tm=setTimeout(()=>ac.abort(),2500);
+try{const r=await fetch(location.origin+'/api/status',{cache:'no-store',signal:ac.signal});if(r.ok){const j=await r.json();
+if(j.uptime<el&&j.fw&&j.fw.state!=='done'){clearTimeout(tm);fwWatch=false;fwActive=false;fwDoneMsg='<span class="ok">Updated - running v'+escH(j.ver)+', back up after '+el+' s.</span> Reload the page to get the new interface.';$('#fw_bar_row').hidden=true;$('#out').textContent='> fw.update\nUpdated to v'+j.ver+', back up after '+el+' s';statusMiss=0;status();return}}}catch(e){}
+clearTimeout(tm);setTimeout(poll,1500)};setTimeout(poll,3000)}
+// In the app over Bluetooth the repeater has no internet: the app fetches the manifest and the image and
+// feeds it in over the link (the progress below still comes from the repeater's own status).
+$('#fw_check').onclick=()=>{if(window.RptBridge){try{RptBridge.postMessage(JSON.stringify({note:'fw.check'}))}catch(e){}return}const b=$('#fw_check');fwDoneMsg='';b.disabled=true;send('fw.check').then(t=>{flash(b,t);setTimeout(status,300);setTimeout(status,2500)})};
+$('#fw_go').onclick=async()=>{if(window.RptBridge){try{RptBridge.postMessage(JSON.stringify({note:'fw.update'}))}catch(e){}return}const f=window.lastFw;if(!f)return;const same=!f.avail;
+if(!await ask((same?'Reinstall':'Install')+' MeshOS repeater v'+f.latest+' now?\n\nThe repeater downloads '+fwMB(f.size)+', verifies it and reboots into it. It keeps repeating until the reboot.',same?'Reinstall':'Install'))return;
+const b=$('#fw_go');fwDoneMsg='';b.disabled=true;send('fw.update'+(same?' force':'')).then(t=>{flash(b,t);setTimeout(status,300)})};
+setInterval(()=>{if(fwActive&&!fwWatch)status()},1000);
+let t0=location.hash.slice(1);if(!TABS.includes(t0)){try{t0=localStorage.getItem('rpt_tab')||'overview'}catch(e){t0='overview'}}showTab(t0);
+status();setInterval(status,4000);
+// ---------------- Network tab tools: nearby-node finder + path trace ----------------
+let fdTimer=null,trTimer=null;const TYPE_NAME={1:'companion',2:'repeater',3:'room',4:'sensor'};
+function nodeLabel(h){const id=h.id||h.hash;return h.name?escH(h.name)+' <span class="dim">'+id+'</span>':'<span style="font-weight:600">'+id+'</span>'}   // not <b>: .card b is display:block
+async function fdPoll(){try{const r=await fetch(location.origin+'/api/finder',{cache:'no-store'});if(!r.ok)return;const j=await r.json();const rows=j.n.slice().sort((a,b)=>{const sa=a.snr==null?-999:a.snr,sb=b.snr==null?-999:b.snr;return sb!==sa?sb-sa:a.id.localeCompare(b.id)});   // strongest first, stable (ages tick and would flip rows)
+$('#fd_list').innerHTML=rows.length?'<table><tr><th>Node</th><th>ID</th><th>Type</th><th>Last heard</th><th>Heard here</th><th>Heard us at</th><th>Trace</th></tr>'+rows.map(h=>'<tr><td>'+(h.name?escH(h.name):'<span class="dim">N/A</span>')+'</td><td>'+h.id+(h.known<8?'<span class="dim" title="only this much of the key is known yet (path hash); a scan answer or advert fills in the rest">\u2026</span>':'')+'</td><td>'+(TYPE_NAME[h.type]||h.type)+'</td><td>'+(h.age<0?'<span class="dim">before restart</span>':(h.age<60?h.age+' s':fmtUp(h.age))+' ago')+'</td><td>'+(h.snr==null?'<span class="dim">\u2014</span>':h.snr.toFixed(1)+' dB')+'</td><td>'+(h.their_snr==null?'<span class="dim">scan to find out</span>':h.their_snr.toFixed(1)+' dB')+'</td><td><button class="q" data-hash="'+h.hash+'" title="add this node (1-byte hash '+h.hash+') to the trace path">+ '+h.hash+'</button></td></tr>').join('')+'</table>':'<div class="dim" style="padding:8px 10px">'+(j.active?'listening…':'nothing heard directly yet - try Scan now')+'</div>';
+$('#fd_list').querySelectorAll('button[data-hash]').forEach(b=>b.onclick=()=>trAdd(b.dataset.hash));
+const scanned=rows.filter(h=>h.their_snr!=null).length;
+if(j.active)$('#fd_msg').textContent='listening… '+j.age+' s · '+scanned+' answer'+(scanned===1?'':'s');else if(fdTimer){$('#fd_msg').textContent=scanned+' node'+(scanned===1?'':'s')+' answered the scan';clearInterval(fdTimer);fdTimer=null;$('#fd_go').disabled=false}}catch(e){}}
+$('#fd_clear').onclick=async()=>{if(!await ask('Forget every neighbour? The list rebuilds as nodes advertise or answer a scan.','Clear'))return;const t=await send('neighbours.clear');$('#fd_msg').textContent=t;fdPoll()};
+$('#fd_go').onclick=async()=>{const b=$('#fd_go');b.disabled=true;const t=await send('finder.start');if(!/^OK/.test(t)){$('#fd_msg').textContent=t;b.disabled=false;return}$('#fd_msg').textContent='listening…';if(fdTimer)clearInterval(fdTimer);fdTimer=setInterval(fdPoll,1000)};
+function trAdd(h){const el=$('#tr_hops');const cur=el.value.trim();el.value=cur?cur+','+h:h}
+function trHops(){return $('#tr_hops').value.toUpperCase().split(/[\s,;]+/).filter(Boolean)}
+$('#tr_go').onclick=async()=>{let hops=trHops();if(!hops.length){$('#tr_out').innerHTML='<span class="bad">enter at least one hop hash</span>';return}
+if($('#tr_back').checked&&hops.length>1)hops=hops.concat(hops.slice(0,-1).reverse());
+const b=$('#tr_go');b.disabled=true;const t=await send('trace '+hops.join(','));if(!/^OK/.test(t)){$('#tr_out').innerHTML='<span class="bad">'+escH(t)+'</span>';b.disabled=false;return}
+const t0=Date.now(),limit=6000+3000*hops.length;$('#tr_out').innerHTML='<span class="dim">waiting for the trace to come back…</span>';
+if(trTimer)clearInterval(trTimer);trTimer=setInterval(async()=>{try{const r=await fetch(location.origin+'/api/trace',{cache:'no-store'});if(!r.ok)return;const j=await r.json();
+if(j.ok){clearInterval(trTimer);trTimer=null;b.disabled=false;trRender(j);return}
+if(Date.now()-t0>limit){clearInterval(trTimer);trTimer=null;b.disabled=false;$('#tr_out').innerHTML='<span class="bad">no reply after '+Math.round(limit/1000)+' s</span> <span class="dim">- a hop may be wrong or out of range, or the last hop cannot reach us (keep "and back" on)</span>';return}
+$('#tr_out').innerHTML='<span class="dim">waiting… '+Math.round((Date.now()-t0)/1000)+' s</span>'}catch(e){}},1000)};
+function trRender(j){let h='<table><tr><th>Leg</th><th>Signal there</th></tr>';let prev='us';
+for(const hp of j.hops){h+='<tr><td style="white-space:nowrap">'+prev+' → '+nodeLabel(hp)+'</td><td>'+(hp.snr==null?'<span class="dim">no data</span>':hp.snr.toFixed(1)+' dB')+'</td></tr>';prev=nodeLabel(hp)}
+h+='<tr><td>'+prev+' → us</td><td>'+(j.final_snr==null?'<span class="dim">no data</span>':j.final_snr.toFixed(1)+' dB')+'</td></tr></table><div class="dim" style="margin-top:4px">round trip '+(j.rtt_ms/1000).toFixed(1)+' s · SNR as received at the end of each leg</div>';$('#tr_out').innerHTML=h}
+// ---------------- first-run setup wizard (same page in a browser and in the app over BLE) ----------------
+let wizActive=false,wizDone=false,W={};
+const escA=s=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');
+async function wcmd(c){try{const r=await fetch(location.origin+'/api/cmd',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'cmd='+encodeURIComponent(c)});return await r.text()}catch(e){return 'Err - request failed'}}
+async function startWizard(j){wizActive=true;let p={};try{const r=await fetch(location.origin+'/api/prefs',{cache:'no-store'});p=await r.json()}catch(e){}
+W={i:0,j:j,p:p,inApp:!!window.RptBridge,reboot:false,pwChanged:false,err:''};document.body.classList.add('setup');wizRender()}
+const WSTEPS=[
+{t:'Welcome',r:()=>{const j=W.j;return '<p>This '+escH(j.board||'repeater')+' is running MeshOS repeater '+escH(j.ver||'')+' for the first time. A few questions and it is on the air.</p>'+(j.inherited?'<div class="note">Network settings were carried over from the MeshOS companion firmware that was on this board. They are filled in for you to confirm.</div>':'')+'<p class="dim">Everything here can be changed later under Settings.</p>'},a:async()=>''},
+{t:'Name',r:()=>{const n=W.p.name||'';const def=/^MeshOS repeater [0-9A-F]{8}$/.test(n);return '<div class="f"><label>Repeater name</label><input id="w_name" value="'+escA(def?'':n)+'" placeholder="'+escA(def?n:'')+'" maxlength="30"><span></span><small>Shown in everyone\'s contact list. A place name works best, e.g. Hill Farm tower.</small></div>'},
+ a:async()=>{const v=$('#w_name').value.trim();if(v&&v!==W.p.name){const t=await wcmd('set name '+v);if(/^Err/.test(t))return t;W.p.name=v}return ''}},
+{t:'Radio',r:()=>{const p=W.p;let h='<p class="dim">Must match the rest of your mesh. Pick your region, then check the four values.</p><div class="f"><label>Preset</label><select id="w_preset"><option value="">Custom</option>'+presets.map((q,i)=>'<option value="'+i+'">'+escH(q[0])+' · '+q[1]+' MHz · BW'+q[2]+' · SF'+q[3]+' · CR'+q[4]+'</option>').join('')+'</select><span></span></div>';
+ h+='<div class="f"><label>Frequency / BW / SF / CR</label><div class="radio4"><input id="w_freq" value="'+escA(p.freq)+'"><input id="w_bw" value="'+escA(p.bw)+'"><input id="w_sf" value="'+escA(p.sf)+'"><input id="w_cr" value="'+escA(p.cr)+'"></div><span></span></div><div class="f"><label>TX power (dBm)</label><input id="w_tx" value="'+escA(p.tx)+'"><span></span></div>';
+ if(p.fem_rx_ctl)h+='<div class="f"><label>Front-end RX gain</label><select id="w_femrx"><option value="on">on (LNA)</option><option value="off">off (bypass)</option></select><span></span></div>';
+ if(p.fem_tx_ctl)h+='<div class="f"><label>Front-end TX gain</label><select id="w_femtx"><option value="on">on</option><option value="off">off</option></select><span></span></div>';return h},
+ m:()=>{const sel=$('#w_preset');const f=+$('#w_freq').value,b=+$('#w_bw').value,sf=+$('#w_sf').value,cr=+$('#w_cr').value;const i=presets.findIndex(q=>Math.abs(q[1]-f)<0.0005&&Math.abs(q[2]-b)<0.01&&q[3]===sf&&q[4]===cr);sel.value=i>=0?String(i):'';
+  sel.onchange=e=>{const q=presets[+e.target.value];if(!q)return;$('#w_freq').value=q[1];$('#w_bw').value=q[2];$('#w_sf').value=q[3];$('#w_cr').value=q[4]};
+  if($('#w_femrx'))$('#w_femrx').value=W.p.fem_rx?'on':'off';if($('#w_femtx'))$('#w_femtx').value=W.p.fem_tx?'on':'off'},
+ a:async()=>{const p=W.p;const f=$('#w_freq').value.trim(),b=$('#w_bw').value.trim(),sf=$('#w_sf').value.trim(),cr=$('#w_cr').value.trim();
+  if(!(+f>0&&+b>0&&+sf>0&&+cr>0))return 'Err - fill in all four radio values';
+  if(+f!==+p.freq||+b!==+p.bw||+sf!==+p.sf||+cr!==+p.cr){const t=await wcmd('set radio '+f+','+b+','+sf+','+cr);if(/^Err/.test(t))return t;p.freq=+f;p.bw=+b;p.sf=+sf;p.cr=+cr;W.reboot=true}
+  const tx=$('#w_tx').value.trim();if(tx!==''&&+tx!==+p.tx){const t=await wcmd('set tx '+tx);if(/^Err/.test(t))return t;p.tx=+tx}
+  if($('#w_femrx')){const v=$('#w_femrx').value;if((v==='on')!==!!p.fem_rx){const t=await wcmd('set radio.fem.rxgain '+v);if(/^Err/.test(t))return t;p.fem_rx=v==='on'?1:0}}
+  if($('#w_femtx')){const v=$('#w_femtx').value;if((v==='on')!==!!p.fem_tx){const t=await wcmd('set radio.fem.txgain '+v);if(/^Err/.test(t))return t;p.fem_tx=v==='on'?1:0}}
+  return ''}},
+{t:'Location',r:()=>'<p class="dim">Optional. Puts the repeater in the right place on maps and in the app.</p><div class="f"><label>Latitude</label><input id="w_lat" value="'+escA(W.p.lat||'')+'" placeholder="e.g. 51.5074"><span></span></div><div class="f"><label>Longitude</label><input id="w_lon" value="'+escA(W.p.lon||'')+'" placeholder="e.g. -0.1278"><span></span></div>',
+ a:async()=>{const la=$('#w_lat').value.trim(),lo=$('#w_lon').value.trim();if(la!==''&&+la!==+W.p.lat){const t=await wcmd('set lat '+la);if(/^Err/.test(t))return t;W.p.lat=+la}if(lo!==''&&+lo!==+W.p.lon){const t=await wcmd('set lon '+lo);if(/^Err/.test(t))return t;W.p.lon=+lo}return ''}},
+{t:'Network',r:()=>{const p=W.p,j=W.j;const cur=j.transport==='wifi'?'WiFi'+(j.wifi&&j.wifi.ssid?', network '+escH(j.wifi.ssid):'')+(j.wifi&&j.wifi.up?', address '+escH(j.wifi.ip):' (not connected)'):'Bluetooth'+(j.ble&&j.ble.connected?' (the app is connected now)':'');return '<p class="dim">The 2.4 GHz radio is either Bluetooth or WiFi.</p><p><b>Current setting:</b> '+cur+'</p><div class="f"><label>Connect via</label><select id="w_tr"><option value="ble">Bluetooth (managed from the MeshOS app)</option><option value="wifi">WiFi network (web page, observer, online updates)</option></select><span></span></div><div id="w_wifi"><div class="f"><label>WiFi network</label><input id="w_ssid" value="'+escA(p.ssid||'')+'" placeholder="SSID"><span></span></div><div class="f"><label>WiFi password</label><input id="w_pwd" type="password" placeholder="'+(p.ssid?'unchanged unless you type one':'')+'"><span></span></div></div><div class="note">On WiFi the repeater is managed from its web page (the address shows on its screen, or in your router) and Bluetooth is off. If it cannot join the network it opens its own hotspot, <b>MeshOS repeater '+escH(j.id||'')+'</b>, after two minutes so you can fix the details (the hotspot uses your admin password when that is 8 characters or more, otherwise it is open).'+(j.eth&&j.eth.present?' The Ethernet port works in both modes.':'')+'</div>'},
+ m:()=>{$('#w_tr').value=W.p.transport||'ble';const upd=()=>{$('#w_wifi').style.display=$('#w_tr').value==='wifi'?'':'none'};$('#w_tr').onchange=upd;upd()},
+ a:async()=>{const tr=$('#w_tr').value;if(tr==='wifi'){const s=$('#w_ssid').value.trim(),pw=$('#w_pwd').value;if(!s)return 'Err - enter the WiFi network name';if(s!==W.p.ssid){const t=await wcmd('set wifi.ssid '+s);if(/^Err/.test(t))return t;W.p.ssid=s}if(pw){const t=await wcmd('set wifi.pwd '+pw);if(/^Err/.test(t))return t}}
+  if(tr!==W.p.transport){const t=await wcmd('set transport '+tr);if(/^Err/.test(t))return t;W.p.transport=tr;W.reboot=true}return ''}},
+{t:'MeshOS observer',r:()=>'<p class="dim">The MeshOS observer feeds the mesh diagnostic tools: coverage and repeater maps, packet and path analysis. With it on, this repeater uploads the packets it hears and a heartbeat (position, radio settings) whenever it has a network, each signed with its own key. Messages stay encrypted end to end; the MeshOS servers never decrypt them. Off means it never contacts the server.</p><div class="f"><label>MeshOS observer</label><select id="w_obs"><option value="off">off</option><option value="on">on</option></select><span></span></div>',
+ m:()=>{$('#w_obs').value=W.p.observer?'on':'off'},
+ a:async()=>{const v=$('#w_obs').value;if((v==='on')!==!!W.p.observer){const t=await wcmd('set observer '+v);if(/^Err/.test(t))return t;W.p.observer=v==='on'?1:0}return ''}},
+{t:'Admin password',r:()=>'<p class="dim">The admin password protects this page, the app sign-in and remote admin over LoRa. The factory default is <b>password</b>, so please change it.</p><div class="f"><label>New password</label><input id="w_pw1" type="password" placeholder="leave blank to keep the current one"><span></span></div><div class="f"><label>Confirm</label><input id="w_pw2" type="password"><span></span><small>After a change, the page and the app ask for the new password.</small></div>',
+ a:async()=>{const a=$('#w_pw1').value,b=$('#w_pw2').value;if(!a&&!b)return '';if(a!==b)return 'Err - the passwords do not match';if(a.length<4||/\s/.test(a))return 'Err - 4 characters or more, no spaces';const t=await wcmd('password '+a);if(/^Err/.test(t))return t;W.pwChanged=true;return ''}},
+{t:'All done',r:()=>{const p=W.p;return '<p>Ready to go. Here is what is set:</p><div class="note">Name: <b>'+escH(p.name||'')+'</b><br>Radio: '+p.freq+' MHz · BW'+p.bw+' · SF'+p.sf+' · CR'+p.cr+' · '+p.tx+' dBm<br>Network: '+(p.transport==='wifi'?'WiFi '+escH(p.ssid||''):'Bluetooth (app)')+'<br>MeshOS observer: '+(p.observer?'on':'off')+(W.pwChanged?'<br>Admin password: changed':'')+'</div>'+(W.reboot?'<p>The radio or network change needs a restart, which happens when you press Finish.'+(W.inApp&&p.transport==='wifi'?' The Bluetooth link will drop as it moves to WiFi; from then on use the web page.':'')+'</p>':'')},a:async()=>''}
+];
+function wizRender(){const s=WSTEPS[W.i];$('#w_step').textContent='Step '+(W.i+1)+' of '+WSTEPS.length;$('#w_title').textContent=s.t;$('#w_body').innerHTML=s.r();if(s.m)s.m();$('#w_err').textContent=W.err||'';$('#w_logo').style.display=W.i?'none':'';$('#w_skipq').style.display='none';$('#w_back').style.visibility=W.i?'':'hidden';$('#w_next').textContent=W.i===WSTEPS.length-1?'Finish':'Next';$('#w_skip').style.display=W.i===WSTEPS.length-1?'none':'';window.scrollTo(0,0)}
+$('#w_back').onclick=()=>{if(W.i>0){W.i--;W.err='';wizRender()}};
+$('#w_next').onclick=async()=>{const b=$('#w_next');b.disabled=true;const t=await WSTEPS[W.i].a();b.disabled=false;if(t){W.err=t;$('#w_err').textContent=t;return}W.err='';if(W.i<WSTEPS.length-1){W.i++;wizRender()}else wizFinish()};
+$('#w_skip').onclick=()=>{$('#w_skipq').style.display='';$('#w_skipyes').focus()};
+$('#w_skipno').onclick=()=>{$('#w_skipq').style.display='none'};
+$('#w_skipyes').onclick=async()=>{const b=$('#w_skipyes');b.disabled=true;await wcmd('setup.done');b.disabled=false;wizExit()};
+async function wizFinish(){await wcmd('setup.done');if(W.j&&W.j.running&&W.j.running!==W.p.transport)W.reboot=true;if(W.reboot){$('#w_body').innerHTML='<p>Restarting…</p>';$('#w_err').textContent='';$('#w_next').disabled=true;$('#w_back').style.visibility='hidden';$('#w_skip').style.display='none';
+ const toWifi=W.inApp&&W.p.transport==='wifi';if(toWifi){try{RptBridge.postMessage(JSON.stringify({note:'going-wifi'}))}catch(e){}}
+ await wcmd('reboot');if(toWifi)return;
+ const blurb=rebootBlurb(Object.assign({},W.j,{transport:W.p.transport}));if(blurb){$('#w_body').innerHTML='<p>'+escH(blurb)+'</p>';return}
+ const t0=Date.now();const poll=async()=>{try{const ac=new AbortController();const tm=setTimeout(()=>ac.abort(),2500);const r=await fetch(location.origin+'/api/status',{cache:'no-store',signal:ac.signal});clearTimeout(tm);if(r.ok){const j=await r.json();if(j.uptime<(Date.now()-t0)/1000){location.hash='#overview';location.reload();return}}}catch(e){}
+  if(Date.now()-t0<120000)setTimeout(poll,2000);else $('#w_body').innerHTML='<p>The repeater has not come back on this address. If it moved to WiFi, open its web page from the address on its screen or in your router.</p>'};setTimeout(poll,4000);return}
+ wizExit()}
+function wizExit(){wizDone=true;wizActive=false;document.body.classList.remove('setup');showTab('overview');status()}
+$('#s_wizard').onclick=()=>wcmd('setup.reset').then(()=>{wizDone=false;status()});
+</script></body></html>
