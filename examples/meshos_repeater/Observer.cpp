@@ -33,7 +33,7 @@ bool Observer::connect() {
   if (!mqtt) {
     mqtt = new PubSubClient(net);
     mqtt->setServer(OBSERVER_HOST, OBSERVER_PORT);
-    mqtt->setBufferSize(512);
+    mqtt->setBufferSize(1024);
     mqtt->setCallback(mqttControl);
     _mqtt = mqtt;
     char id[20];
@@ -62,11 +62,17 @@ void Observer::loop() {
   PubSubClient* mqtt = (PubSubClient*) _mqtt;
   mqtt->loop();
 
+  // upload any heard packets first
+  char id[20];
+  mesh::Utils::toHex(id, _mesh.self_id.pub_key, 3);
+  char rx_topic[32];
+  snprintf(rx_topic, sizeof(rx_topic), TOPIC_RX_FMT, id);
+  String rx;
+  while (_mesh.observerNextRx(rx)) mqtt->publish(rx_topic, rx.c_str());
+
   if ((long)(millis() - _next_pub) < 0) return;
   _next_pub = millis() + HEARTBEAT_MS;
 
-  char id[20];
-  mesh::Utils::toHex(id, _mesh.self_id.pub_key, 3);
   char topic[32];
   snprintf(topic, sizeof(topic), TOPIC_STATUS_FMT, id);
   String hb = _mesh.observerHeartbeat();

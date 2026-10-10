@@ -51,6 +51,14 @@ class MeshOSFull : public MyMesh {
   float _last_snr = 0, _last_rssi = 0;
   void recordPkt(mesh::Packet* pkt, int len, uint8_t dir, uint8_t fl);
 
+  // queue of heard packets awaiting upload to the observer's /rx topic
+  struct ObsRx { uint32_t t; int8_t snr4; int16_t rssi; uint8_t len; uint8_t raw[184]; };
+  static const uint8_t OBS_Q = 8;
+  ObsRx _obs_q[OBS_Q] = {};
+  uint8_t _obs_head = 0, _obs_count = 0;
+  uint32_t _obs_dropped = 0;
+  void observerCaptureRx(mesh::Packet* pkt);
+
   void saveConfig();            // write prefs to /meshos_net.json
   void saveFilter() { saveConfig(); }
 
@@ -82,5 +90,6 @@ public:
   String finderJson();              // /api/finder: directly-heard nodes
   bool observerEnabled() const { return prefs.observer; }
   String observerHeartbeat();       // signed status payload for the MQTT observer
+  bool observerNextRx(String& out); // next heard-packet payload for the /rx topic, or false
   void handleCommand(uint32_t sender_timestamp, char* command, char* reply) override;
 };

@@ -384,6 +384,7 @@ void MeshOSFull::logRx(mesh::Packet* pkt, int len, float score) {
     else if (matchEntry(pkt) >= 0) fl |= 1;
   }
   recordPkt(pkt, len, 0, fl);
+  if (prefs.observer) observerCaptureRx(pkt);
 }
 
 void MeshOSFull::logTx(mesh::Packet* pkt, int len) {
@@ -464,4 +465,39 @@ String MeshOSFull::observerHeartbeat() {
   String out = body.substring(0, body.length() - 1);  // reopen before the closing brace
   out += ",\"sig\":\""; out += sighex; out += "\"}";
   return out;
+}
+
+// capture a heard packet for the observer /rx queue (dropping oldest if full)
+void MeshOSFull::observerCaptureRx(mesh::Packet* pkt) {
+  ObsRx& e = _obs_q[(_obs_head + _obs_count) % OBS_Q];
+  e.t = millis() / 1000;
+  e.snr4 = (int8_t)(_last_snr * 4);
+  e.rssi = (int16_t)_last_rssi;
+  e.len = pkt->writeTo(e.raw);
+  if (_obs_count < OBS_Q) _obs_count++;
+  else { _obs_head = (_obs_head + 1) % OBS_Q; _obs_dropped++; }
+}
+
+// build the next /rx payload (signed), matching the firmware's format
+bool MeshOSFull::observerNextRx(String& out) {
+  if (_obs_count == 0) return false;
+  ObsRx& e = _obs_q[_obs_head];
+  _obs_head = (_obs_head + 1) % OBS_Q;
+  _obs_count--;
+
+  char raw[sizeof(e.raw) * 2 + 2];
+  mesh::Utils::toHex(raw, e.raw, e.len);
+  char body[sizeof(raw) + 96];
+  snprintf(body, sizeof(body), "{\"t\":%lu,\"snr\":%.2f,\"rssi\":%d,\"len\":%u,\"raw\":\"%s\"}",
+           (unsigned long)e.t, e.snr4 / 4.0, e.rssi, e.len, raw);
+
+  uint8_t sig[64];
+  self_id.sign(sig, (const uint8_t*) body, strlen(body));
+  char sighex[130];
+  mesh::Utils::toHex(sighex, sig, sizeof(sig));
+
+  out = String(body);
+  out = out.substring(0, out.length() - 1);
+  out += ",\"sig\":\""; out += sighex; out += "\"}";
+  return true;
 }
