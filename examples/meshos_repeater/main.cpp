@@ -4,6 +4,7 @@
 #include "MeshOSFull.h"
 #ifdef ESP32
 #include "WebInterface.h"
+#include <helpers/esp32/SerialBLEInterface.h>
 #endif
 
 #ifdef DISPLAY_CLASS
@@ -22,6 +23,9 @@ SimpleMeshTables tables;
 MeshOSFull the_mesh(board, radio_driver, *new ArduinoMillis(), fast_rng, rtc_clock, tables);
 #ifdef ESP32
 static WebInterface web_iface(the_mesh);
+static SerialBLEInterface ble_iface;
+static char ble_cmd[180];
+static char ble_reply[180];
 #endif
 
 void halt() {
@@ -115,6 +119,10 @@ void setup() {
 #ifdef ESP32
   if (the_mesh.getTransport() == 2) {
     web_iface.begin("MeshOS Repeater", "");
+  } else {
+    // Default BLE transport: the MeshOS app connects and sends CLI commands.
+    ble_iface.begin("MeshCore-", the_mesh.getNodePrefs()->node_name, the_mesh.getBlePin());
+    ble_iface.enable();
   }
 #endif
 
@@ -197,6 +205,18 @@ void loop() {
   }
 #endif
 
+#ifdef ESP32
+  if (ble_iface.isEnabled()) {
+    ble_iface.loop();
+    int len = ble_iface.checkRecvFrame((uint8_t*) ble_cmd);
+    if (len > 0) {
+      ble_cmd[len] = 0;
+      ble_reply[0] = 0;
+      the_mesh.handleCommand(0, ble_cmd, ble_reply);
+      if (ble_reply[0]) ble_iface.writeFrame((const uint8_t*) ble_reply, strlen(ble_reply));
+    }
+  }
+#endif
   the_mesh.loop();
   sensors.loop();
 #ifdef DISPLAY_CLASS

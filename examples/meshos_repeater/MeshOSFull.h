@@ -55,6 +55,7 @@ public:
 
   void beginFull(FILESYSTEM* fs);
   uint8_t getTransport() const { return prefs.transport; }
+  uint32_t getBlePin() const { return prefs.ble_pin ? prefs.ble_pin : 123456; }
   String channelsJson();   // /api/channels: block state + heard stats
   void handleCommand(uint32_t sender_timestamp, char* command, char* reply) override;
 };
