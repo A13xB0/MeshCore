@@ -439,3 +439,29 @@ String MeshOSFull::finderJson() {
   j += "]}";
   return j;
 }
+
+// Signed status heartbeat published to the MeshOS observer when enabled.
+String MeshOSFull::observerHeartbeat() {
+  char id[20];
+  mesh::Utils::toHex(id, self_id.pub_key, 6);
+  NodePrefs* p = getNodePrefs();
+  String body = "{";
+  body += "\"name\":\"";    body += p->node_name;  body += "\",";
+  body += "\"id\":\"";      body += id;            body += "\",";
+  body += "\"ver\":\"" FIRMWARE_VERSION "\",";
+  body += "\"uptime\":";   body += millis() / 1000; body += ',';
+  body += "\"transport\":\""; body += (prefs.transport == 2 ? "wifi" : "ble"); body += "\",";
+  body += "\"blocked\":";  body += prefs.blocked_n; body += ',';
+  body += "\"entries\":";  body += prefs.entry_n;   body += ',';
+  body += "\"not_repeated\":"; body += not_repeated;
+  body += '}';
+
+  uint8_t sig[64];
+  self_id.sign(sig, (const uint8_t*) body.c_str(), body.length());
+  char sighex[130];
+  mesh::Utils::toHex(sighex, sig, sizeof(sig));
+
+  String out = body.substring(0, body.length() - 1);  // reopen before the closing brace
+  out += ",\"sig\":\""; out += sighex; out += "\"}";
+  return out;
+}

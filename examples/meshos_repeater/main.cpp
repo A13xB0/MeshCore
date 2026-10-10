@@ -4,6 +4,7 @@
 #include "MeshOSFull.h"
 #ifdef ESP32
 #include "WebInterface.h"
+#include "Observer.h"
 #include <helpers/esp32/SerialBLEInterface.h>
 #endif
 
@@ -24,6 +25,7 @@ MeshOSFull the_mesh(board, radio_driver, *new ArduinoMillis(), fast_rng, rtc_clo
 #ifdef ESP32
 static WebInterface web_iface(the_mesh);
 static SerialBLEInterface ble_iface;
+static Observer observer(the_mesh);
 static char ble_cmd[180];
 static char ble_reply[180];
 #endif
@@ -218,6 +220,9 @@ void loop() {
   }
 #endif
   the_mesh.loop();
+#ifdef ESP32
+  observer.loop();
+#endif
   sensors.loop();
 #ifdef DISPLAY_CLASS
   ui_task.loop();

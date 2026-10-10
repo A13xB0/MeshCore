@@ -80,5 +80,7 @@ public:
   String channelsJson();            // /api/channels: block state + heard stats
   String logJson(uint32_t since);   // /api/log: recent packets since a sequence number
   String finderJson();              // /api/finder: directly-heard nodes
+  bool observerEnabled() const { return prefs.observer; }
+  String observerHeartbeat();       // signed status payload for the MQTT observer
   void handleCommand(uint32_t sender_timestamp, char* command, char* reply) override;
 };
