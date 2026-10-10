@@ -19,6 +19,7 @@ static int hexNibble(char c) {
 
 // "#name" -> hashtag channel hash, or a hex hash "A5" / "0xA5"
 static bool parseChannelHash(const char* arg, uint8_t& hash) {
+  while (*arg == ' ') arg++;
   if (*arg == '#') {
     uint8_t secret[16];
     mesh::Utils::sha256(secret, sizeof(secret), (const uint8_t *) arg, strlen(arg));
@@ -179,7 +180,6 @@ bool MeshOSLite::handleLiteCommand(char* command, char* reply) {
   if (memcmp(command, "block.channel ", 14) == 0 || memcmp(command, "unblock.channel ", 16) == 0) {
     bool block = command[0] == 'b';
     char* arg = &command[block ? 14 : 16];
-    while (*arg == ' ') arg++;
 
     uint8_t hash;
     if (!parseChannelHash(arg, hash)) {
@@ -219,7 +219,6 @@ bool MeshOSLite::handleLiteCommand(char* command, char* reply) {
 
   if (memcmp(command, "chan.hash ", 10) == 0) {
     char* arg = &command[10];
-    while (*arg == ' ') arg++;
 
     uint8_t hash;
     if (!parseChannelHash(arg, hash)) {
