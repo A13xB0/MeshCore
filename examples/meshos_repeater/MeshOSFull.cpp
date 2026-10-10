@@ -309,3 +309,46 @@ void MeshOSFull::handleCommand(uint32_t sender_timestamp, char* command, char* r
   if (handleConfigCommand(command, reply)) return;
   MyMesh::handleCommand(sender_timestamp, command, reply);
 }
+
+// /api/channels for the web UI: blocked lists + which channels/entry repeaters
+// have been heard, built from the reconstructed filter state.
+String MeshOSFull::channelsJson() {
+  String j = "{\"public\":";
+  j += PUBLIC_CHANNEL_HASH;
+  j += ",\"not_repeated\":";
+  j += not_repeated;
+
+  j += ",\"blocked\":[";
+  for (uint8_t i = 0; i < prefs.blocked_n && i < MESHOS_MAX_BLOCKED; i++) {
+    if (i) j += ',';
+    j += prefs.blocked[i];
+  }
+
+  j += "],\"chans\":[";
+  bool first = true;
+  for (int h = 0; h < 256; h++) {
+    if (chan_heard[h] == 0) continue;
+    if (!first) j += ',';
+    j += '['; j += h; j += ','; j += chan_heard[h]; j += ']';
+    first = false;
+  }
+
+  j += "],\"en\":[";
+  first = true;
+  for (int h = 0; h < 256; h++) {
+    if (entry_heard[h] == 0) continue;
+    if (!first) j += ',';
+    j += '['; j += h; j += ','; j += entry_heard[h]; j += ']';
+    first = false;
+  }
+
+  j += "],\"entry_blocked\":[";
+  for (uint8_t i = 0; i < prefs.entry_n && i < MESHOS_MAX_ENTRIES; i++) {
+    char hex[MESHOS_MAX_ENTRY_LEN * 2 + 2];
+    toHex(prefs.entries[i].id, prefs.entries[i].len, hex);
+    if (i) j += ',';
+    j += "[\""; j += hex; j += "\","; j += entry_hits[i]; j += ",\"\"]";
+  }
+  j += "]}";
+  return j;
+}

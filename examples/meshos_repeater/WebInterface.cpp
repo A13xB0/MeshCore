@@ -58,6 +58,10 @@ void WebInterface::begin(const char* ap_ssid, const char* ap_pwd) {
     req->send(200, "text/plain", runCommand(*mesh, cmd));
   });
 
+  server->on("/api/channels", HTTP_GET, [mesh](AsyncWebServerRequest* req) {
+    req->send(200, "application/json", mesh->channelsJson());
+  });
+
   server->on("/api/prefs", HTTP_GET, [mesh](AsyncWebServerRequest* req) {
     req->send(200, "application/json", "{\"transport\":\"" + runCommand(*mesh, "get transport").substring(2) + "\"}");
   });

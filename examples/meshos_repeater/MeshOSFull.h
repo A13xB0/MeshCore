@@ -55,5 +55,6 @@ public:
 
   void beginFull(FILESYSTEM* fs);
   uint8_t getTransport() const { return prefs.transport; }
+  String channelsJson();   // /api/channels: block state + heard stats
   void handleCommand(uint32_t sender_timestamp, char* command, char* reply) override;
 };
