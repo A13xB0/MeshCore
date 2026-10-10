@@ -93,7 +93,7 @@ void MeshOSLite::beginLite(FILESYSTEM* fs) {
   // sanitise what was loaded
   if (lite.blocked_n > LITE_MAX_BLOCKED) lite.blocked_n = LITE_MAX_BLOCKED;
   uint8_t n = 0;
-  for (int i = 0; i < lite.entry_n && i < LITE_MAX_ENTRIES; i++) {
+  for (uint8_t i = 0; i < lite.entry_n && i < LITE_MAX_ENTRIES; i++) {
     if (lite.entries[i].len >= 1 && lite.entries[i].len <= LITE_MAX_ENTRY_LEN) {
       if (n != i) lite.entries[n] = lite.entries[i];
       n++;
