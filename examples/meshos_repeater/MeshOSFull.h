@@ -17,7 +17,10 @@ class MeshOSFull : public MyMesh {
   uint32_t not_repeated = 0;
   uint32_t entry_hits[MESHOS_MAX_ENTRIES] = {};
 
-  bool isChannelBlocked(uint8_t hash) const {
+  // The shipped binary keeps isChannelBlocked a separate function because its integrated
+  // CLI/web handler calls it from several places. Until that handler is reconstructed, noinline
+  // stands in for that call-graph effect so the filter functions compile to the author's shapes.
+  __attribute__((noinline)) bool isChannelBlocked(uint8_t hash) const {
     for (uint8_t i = 0; i < prefs.blocked_n && i < MESHOS_MAX_BLOCKED; i++) {
       if (prefs.blocked[i] == hash) return true;
     }
