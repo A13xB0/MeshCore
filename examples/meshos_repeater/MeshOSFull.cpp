@@ -501,3 +501,31 @@ bool MeshOSFull::observerNextRx(String& out) {
   out += ",\"sig\":\""; out += sighex; out += "\"}";
   return true;
 }
+
+// build the region tree the way RegionMap::printChildRegions does, '|'-separated
+static void buildRegionTree(RegionMap& rm, const RegionEntry* parent, int indent, uint16_t home_id, String& out) {
+  for (int i = 0; i < indent; i++) out += ' ';
+  const char* nm = parent->name;
+  if (nm[0] == '#') nm++;                       // skip_hash
+  out += nm;
+  if (parent->id == home_id) out += '^';
+  if (!(parent->flags & REGION_DENY_FLOOD)) out += " F";
+  out += '|';
+  for (int i = 0; i < rm.getCount(); i++) {
+    const RegionEntry* r = rm.getByIdx(i);
+    if (r->parent == parent->id) buildRegionTree(rm, r, indent + 1, home_id, out);
+  }
+}
+
+String MeshOSFull::regionsJson() {
+  RegionMap& rm = getRegionMap();
+  const RegionEntry* home = rm.getHomeRegion();
+  const RegionEntry* def = rm.getDefaultRegion();
+  uint16_t home_id = home ? home->id : 0xFFFF;
+  String tree;
+  buildRegionTree(rm, rm.getRoot(), 0, home_id, tree);
+  String j = "{\"tree\":\""; j += tree; j += "\",";
+  j += "\"default\":\""; j += (def ? def->name : "<null>"); j += "\",";
+  j += "\"home\":\""; j += (home ? home->name : "*"); j += "\"}";
+  return j;
+}
