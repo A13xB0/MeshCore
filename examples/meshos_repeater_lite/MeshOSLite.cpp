@@ -145,7 +145,11 @@ void MeshOSLite::beginLite(FILESYSTEM* fs) {
 
   bool found = fs->exists(MESHOS_LITE_FILE);
   if (found) {
+#if defined(RP2040_PLATFORM)
+    File file = fs->open(MESHOS_LITE_FILE, "r");   // RP2040 LittleFS needs an explicit mode
+#else
     File file = fs->open(MESHOS_LITE_FILE);
+#endif
     if (file) {
       lite.loadSerial(file);
       file.close();
