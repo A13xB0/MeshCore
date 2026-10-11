@@ -6,10 +6,8 @@
 #include <WiFiClient.h>
 #include <PubSubClient.h>
 
-// All recovered from the shipped firmware's string table (the MQTT broker is a
-// bare IP, not meshcore.co.uk which is only the web/API host). The username and
-// password are the shared device credentials embedded in every MeshOS repeater
-// build.
+// The MeshOS observer broker. The username and password are shared by every
+// MeshOS repeater, not per-device secrets.
 #define OBSERVER_HOST     "167.99.90.25"
 #define OBSERVER_PORT     1883
 #define OBSERVER_USER     "meshos-device"

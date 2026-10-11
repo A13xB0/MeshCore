@@ -9,9 +9,9 @@
 #include <BLEUtils.h>
 #include <BLE2902.h>
 
-// Companion (Nordic UART) GATT profile - the same service the single-connection
-// SerialBLEInterface advertises, so the MeshOS app discovers the repeater exactly
-// as it would a companion radio. AirLink just accepts several links at once.
+// Nordic UART GATT service - the same one SerialBLEInterface advertises, so the
+// MeshOS app finds the repeater as it would a companion radio. AirLink just
+// accepts several connections at once.
 #define AL_SERVICE_UUID  "6E400001-B5A3-F393-E0A9-E50E24DCCA9E"
 #define AL_CHAR_RX_UUID  "6E400002-B5A3-F393-E0A9-E50E24DCCA9E"  // phone -> repeater (write)
 #define AL_CHAR_TX_UUID  "6E400003-B5A3-F393-E0A9-E50E24DCCA9E"  // repeater -> phone (notify)
@@ -20,6 +20,7 @@
   #define AL_FRAME_MAX   256        // one length-prefixed mesh Packet
 #endif
 #define AL_RECV_RING     16         // PSRAM-backed inbound frame ring
+#define AL_EVENT_QUEUE   8          // pending connect/disconnect events
 #define AL_RATE_WINDOW   1000UL     // per-phone send cap window (ms)
 #define AL_RATE_MAX      12         // ... max phone->LoRa injections per window
 
@@ -30,23 +31,22 @@ static const char REPEATER_BANNER[] =
   "MeshOS repeater: not a companion radio - use the app's Repeater manager";
 
 // ===========================================================================
-// PhoneLink - the multi-connection BLE companion transport.
+// PhoneLink - BLE server holding up to AIRLINK_MAX_PHONES connections.
 //
-// Rebuilt on the same ESP32 BLE stack SerialBLEInterface uses, but holding up to
-// AIRLINK_MAX_PHONES links at once. TX notifications go to every subscribed phone
-// (each phone keeps only the packets it can decrypt - end-to-end encrypted as
-// sent), which is exactly what the LoRa->phones broadcast needs. Inbound frames
-// are tagged with their conn_id and queued in a PSRAM ring. Connect / disconnect
-// events are queued for AirLink::loop() so it can print the recovered log lines.
+// Outgoing frames are notified to every subscribed phone (each phone keeps only
+// what it can decrypt). Incoming frames are tagged with their connection id and
+// queued in a PSRAM ring; connect/disconnect events are queued too, so that
+// AirLink::loop() handles everything outside the BLE callbacks.
 // ===========================================================================
 class PhoneLink : public BLEServerCallbacks, public BLECharacteristicCallbacks {
 public:
   struct Conn { bool used=false; uint16_t conn_id=0; uint16_t mtu=23; esp_bd_addr_t bda={}; };
   struct InFrame { uint16_t conn_id; uint16_t len; uint8_t buf[AL_FRAME_MAX]; };
-  struct Evt { uint8_t kind; uint16_t conn_id; uint16_t mtu; uint8_t reason; };  // kind:1=join 2=left
+  enum EventKind : uint8_t { PHONE_JOINED = 1, PHONE_LEFT = 2 };
+  struct Evt { EventKind kind; uint16_t conn_id; uint16_t mtu; uint8_t reason; };
 
   bool allocBuffers() {
-    // peer queues live in PSRAM - honours "needs PSRAM" and "no memory for peer queues"
+    // the inbound ring lives in PSRAM
     _ring = (InFrame*) heap_caps_malloc(sizeof(InFrame) * AL_RECV_RING, MALLOC_CAP_SPIRAM);
     return _ring != NULL;
   }
@@ -95,7 +95,7 @@ public:
   bool nextEvent(Evt& out) {
     if (_evt_count == 0) return false;
     out = _evt[_evt_tail];
-    _evt_tail = (_evt_tail + 1) % 8;
+    _evt_tail = (_evt_tail + 1) % AL_EVENT_QUEUE;
     _evt_count--;
     return true;
   }
@@ -126,7 +126,9 @@ public:
       if (!c.used) {
         c.used = true; c.conn_id = conn; c.mtu = mtu;
         memcpy(c.bda, p->connect.remote_bda, sizeof(esp_bd_addr_t));
-        _n++; pushEvt(1, conn, mtu, 0); break;
+        _n++;
+        pushEvt(PHONE_JOINED, conn, mtu, 0);
+        break;
       }
     }
     // keep advertising so further phones (up to the slot cap) can still join
@@ -138,7 +140,12 @@ public:
   void onDisconnect(BLEServer*, esp_ble_gatts_cb_param_t* p) override {
     uint16_t conn = p->disconnect.conn_id;
     for (auto& c : _conns) {
-      if (c.used && c.conn_id == conn) { c.used = false; if (_n) _n--; pushEvt(2, conn, 0, p->disconnect.reason); break; }
+      if (c.used && c.conn_id == conn) {
+        c.used = false;
+        if (_n) _n--;
+        pushEvt(PHONE_LEFT, conn, 0, p->disconnect.reason);
+        break;
+      }
     }
     _server->getAdvertising()->start();
   }
@@ -158,10 +165,10 @@ public:
   uint32_t overflow() const { return _overflow; }
 
 private:
-  void pushEvt(uint8_t kind, uint16_t conn, uint16_t mtu, uint8_t reason) {
-    if (_evt_count >= 8) return;
+  void pushEvt(EventKind kind, uint16_t conn, uint16_t mtu, uint8_t reason) {
+    if (_evt_count >= AL_EVENT_QUEUE) return;
     _evt[_evt_head] = { kind, conn, mtu, reason };
-    _evt_head = (_evt_head + 1) % 8;
+    _evt_head = (_evt_head + 1) % AL_EVENT_QUEUE;
     _evt_count++;
   }
 
@@ -175,7 +182,7 @@ private:
   uint8_t  _ring_head = 0, _ring_tail = 0, _ring_count = 0;
   uint32_t _overflow = 0;
 
-  Evt _evt[8];
+  Evt _evt[AL_EVENT_QUEUE];
   uint8_t _evt_head = 0, _evt_tail = 0, _evt_count = 0;
 };
 
@@ -211,7 +218,7 @@ void AirLink::begin() {
                 _mesh.airlinkPublic() ? "on" : "off",
                 _mesh.airlinkChannels(), (int) AIRLINK_MAX_PHONES);
   Serial.printf("AIRLINK: %s alongside WiFi, heap %u free / %u largest\n",
-                (_mesh.getTransport() == 2) ? "running" : "started",
+                _mesh.isWifiTransport() ? "running" : "started",
                 (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getMaxAllocHeap());
 }
 
@@ -223,10 +230,11 @@ void AirLink::end() {
   _initialized = false;
 }
 
-// Resolve airlink.public + airlink.channels (#hashtags) to the 1-byte channel
-// hashes we filter group packets on. The public channel's hash is fixed; a
-// hashtag channel's hash is the first byte of sha256(secret), and a hashtag's
-// secret is derived from its text (MeshCore's deterministic hashtag convention).
+// Resolve airlink.public + airlink.channels (comma-separated #hashtags) to the
+// 1-byte channel hashes that group packets are matched on.
+// NOTE: this hashes the tag *without* its '#' and uses a 32-byte secret, unlike
+// meshos::hashtagChannelHash() used by the spam filter (with '#', 16 bytes), so
+// the two can give different hashes for the same channel.
 void AirLink::resolveChannels() {
   _n_sel = 0;
   if (_mesh.airlinkPublic()) _sel_hash[_n_sel++] = PUBLIC_CHANNEL_HASH;
@@ -278,14 +286,9 @@ bool AirLink::shouldCross(const mesh::Packet* pkt) const {
 // packets to the phones, suppressing echoes of what we ourselves just injected.
 void AirLink::sendPacket(mesh::Packet* packet) {
   if (!_initialized || !_link || _link->connected() == 0) return;
-  if (!shouldCross(packet)) {
-    // withheld channel packet from a blocked entry repeater is worth counting
-    if ((packet->getPayloadType() == PAYLOAD_TYPE_GRP_TXT ||
-         packet->getPayloadType() == PAYLOAD_TYPE_GRP_DATA) &&
-        _mesh.isEntryBlockedPkt(packet)) _st.entry_blocked++;
-    return;
-  }
+  // channel packets that came in through a blocked entry repeater stay off the phones
   if (_mesh.isEntryBlockedPkt(packet)) { _st.entry_blocked++; return; }
+  if (!shouldCross(packet)) return;
 
   // de-dup: if we already injected this packet from a phone, it is our own echo
   if (_seen_packets.wasSeen(packet)) { _st.echo_lora++; return; }
@@ -339,17 +342,15 @@ void AirLink::drainPhones() {
     if (!pkt->readFrom(&f.buf[1], plen)) { _mesh.getPacketManager()->free(pkt); _st.dropped++; continue; }
 
     // relay to the *other* phones too (phone <-> phone), then inject to LoRa
-    if (_link->connected() > 1) { relayToPhonesRaw(f.buf, (uint16_t)(plen + 1)); _st.relayed++; }
+    if (_link->connected() > 1) {
+      _link->broadcast(f.buf, (uint16_t)(plen + 1));   // already length-prefixed
+      _st.relayed++;
+    }
 
     if (_seen_packets.wasSeen(pkt)) { _st.dup++; _mesh.getPacketManager()->free(pkt); continue; }
     onPacketReceived(pkt);   // -> queueInbound, floods on LoRa
     _st.to_lora++;
   }
-}
-
-// (helper kept inline-ish: rebroadcast an already-framed buffer to the phones)
-void AirLink::relayToPhonesRaw(const uint8_t* framed, uint16_t len) {
-  _link->broadcast(framed, len);
 }
 
 bool AirLink::rateOk(PhoneSlot& p) {
@@ -366,7 +367,7 @@ int AirLink::findSlot(uint16_t conn) const {
   return -1;
 }
 
-void AirLink::onPhoneJoined(uint16_t conn, uint16_t mtu, uint16_t interval, uint16_t timeout) {
+void AirLink::onPhoneJoined(uint16_t conn, uint16_t mtu) {
   int slot = -1;
   for (int i = 0; i < AIRLINK_MAX_PHONES; i++) if (!_phones[i].active) { slot = i; break; }
   if (slot < 0) {
@@ -376,8 +377,8 @@ void AirLink::onPhoneJoined(uint16_t conn, uint16_t mtu, uint16_t interval, uint
   // request a faster link: 12-24 x 1.25 ms (15-30 ms), supervision timeout 4 s
   const uint16_t REQ_MIN = 12, REQ_MAX = 24, REQ_TO = 400;
   bool link_ok = _link->requestLink(conn, REQ_MIN, REQ_MAX, 0, REQ_TO);
-  interval = link_ok ? REQ_MIN : 0;
-  timeout  = link_ok ? (REQ_TO / 10) : 0;   // logged in units of 10 ms
+  uint16_t interval = link_ok ? REQ_MIN : 0;
+  uint16_t timeout  = link_ok ? (REQ_TO / 10) : 0;   // logged in units of 10 ms
 
   PhoneSlot& p = _phones[slot];
   p = PhoneSlot();
@@ -396,9 +397,9 @@ void AirLink::onPhoneJoined(uint16_t conn, uint16_t mtu, uint16_t interval, uint
   else
     Serial.printf("AIRLINK: conn %u link settings request failed (%d)\n", conn, -1);
   // capability summary: which traffic classes cross + whether the LoRa radio is live
-  Serial.printf("AIRLINK: conn %u%s%s%s radio %s\n", conn,
-                " DM", _mesh.airlinkPublic() ? " pub" : "",
-                _mesh.airlinkChannels()[0] ? " ch" : "", "on");
+  Serial.printf("AIRLINK: conn %u DM%s%s radio on\n", conn,
+                _mesh.airlinkPublic() ? " pub" : "",
+                _mesh.airlinkChannels()[0] ? " ch" : "");
 }
 
 void AirLink::onPhoneLeft(uint16_t conn, uint8_t reason, int8_t last_dbm, int8_t weakest_dbm) {
@@ -419,15 +420,15 @@ void AirLink::loop() {
   // service connect/disconnect events raised by the BLE stack
   PhoneLink::Evt e;
   while (_link->nextEvent(e)) {
-    if (e.kind == 1) onPhoneJoined(e.conn_id, e.mtu, 0, 0);   // interval/timeout filled on negotiation
-    else if (e.kind == 2) onPhoneLeft(e.conn_id, e.reason, 0, 0);
+    if (e.kind == PhoneLink::PHONE_JOINED) onPhoneJoined(e.conn_id, e.mtu);
+    else if (e.kind == PhoneLink::PHONE_LEFT) onPhoneLeft(e.conn_id, e.reason, 0, 0);
   }
 
   drainPhones();
 }
 
 // The probe reply the MeshOS app reads to recognise this node as a repeater (not
-// a companion radio). Schema matches the recovered "meshos-rpt/1" banner.
+// a companion radio): the "meshos-rpt/1" banner.
 String AirLink::bannerJson() {
   char id[20], pub[72];
   mesh::Utils::toHex(id, _mesh.self_id.pub_key, 3);
@@ -441,9 +442,9 @@ String AirLink::bannerJson() {
     "{\"proto\":\"meshos-rpt/1\",\"id\":\"%s\",\"pub\":\"%s\",\"name\":\"%s\",\"ver\":\"%s\","
     "\"build\":\"%s\",\"board\":\"%s\",\"hw\":\"%s\",\"uptime\":%lu,\"time\":%lu,\"clock\":\"%s\","
     "\"transport\":\"%s\",\"page\":%u}",
-    id, pub, _mesh.getNodeName(), MESHOS_VERSION, FIRMWARE_BUILD_DATE, "Heltec V4", "Heltec V4 OLED",
+    id, pub, _mesh.getNodeName(), MESHOS_VERSION, FIRMWARE_BUILD_DATE, MESHOS_BOARD_NAME, MESHOS_HW_NAME,
     (unsigned long)(millis()/1000), (unsigned long)t, clk,
-    _mesh.getTransport() == 2 ? "wifi" : "ble", 0);
+    _mesh.transportName(), 0);
   return String(buf);
 }
 

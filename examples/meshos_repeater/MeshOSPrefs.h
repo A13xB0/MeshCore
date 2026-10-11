@@ -1,53 +1,49 @@
 #pragma once
 
 #include "../simple_repeater/MyMesh.h"
+#include "../meshos_shared/SpamFilter.h"
 
-// The MeshOS full repeater's config block, recovered field-for-field from
-// MeshOS-Repeater-HeltecV4-v1.6.1 by decompiling its structure() serialiser.
-// Offsets are relative to the ConfigSerializer base (its vtable+parent occupy
-// the first 12 bytes), so the first field lands at +0x0c and blocked_n at +0x90
-// -- the same absolute offsets the shipped binary uses, which is what lets the
-// spam-filter helpers compile to the author's exact code.
+// MeshOS settings of the full repeater, saved to /meshos_net.json alongside the
+// stock MeshCore /prefs.json. Most of them apply after a reboot.
 
-#define MESHOS_MAX_BLOCKED    16
-#define MESHOS_MAX_ENTRIES    8
-#define MESHOS_MAX_ENTRY_LEN  3
-
-struct MeshOSEntry {
-  uint8_t len;
-  uint8_t id[MESHOS_MAX_ENTRY_LEN];
+enum Transport : uint8_t {
+  TRANSPORT_BLE  = 0,   // admin link over Bluetooth (the MeshOS app)
+  TRANSPORT_WIFI = 2,   // WiFi access point + web UI, and joins wifi_ssid if set
 };
+
+inline const char* transportName(uint8_t transport) {
+  return transport == TRANSPORT_WIFI ? "wifi" : "ble";
+}
+
+#define DEFAULT_BLE_PIN   123456   // used while ble_pin is 0 (never set)
 
 class MeshOSPrefs : public ConfigSerializer {
 public:
-  uint8_t  transport = 0;             // +0x0c  ble(0) / wifi(2)
-  char     wifi_ssid[33] = {};        // +0x0d
-  char     wifi_pwd[64] = {};         // +0x2e
-  uint8_t  wifi_lock = 0;             // +0x6e  (single byte before web_pwd)
-  char     web_pwd[33] = {};          // +0x6f  dedicated web password
-  uint8_t  blocked_n = 0;             // +0x90
-  uint8_t  blocked[MESHOS_MAX_BLOCKED] = {};   // +0x91
-  uint8_t  entry_n = 0;               // +0xa1
-  MeshOSEntry entries[MESHOS_MAX_ENTRIES] = {}; // +0xa2  (32 bytes)
-  uint8_t  configured = 0;            // +0xc2
-  uint8_t  setup_done = 0;            // +0xc3
-  uint8_t  inherited = 0;             // +0xc4
-  uint16_t ble_pin = 0;              // +0xc8  (3 bytes padding before it)
-  uint8_t  ble_rebond = 0;           // +0xcc
-  uint8_t  airlink = 0;              // +0xcd
-  uint8_t  airlink_pub = 0;         // +0xce
-  char     airlink_ch[96] = {};     // +0xcf
-  uint8_t  observer = 0;            // +0x12f
+  uint8_t  transport = TRANSPORT_BLE;
+  char     wifi_ssid[33] = {};
+  char     wifi_pwd[64] = {};
+  uint8_t  wifi_lock = 0;
+  char     web_pwd[33] = {};        // web UI password; empty = none
+  FilterLists filter;               // spam filter block lists
+  uint8_t  configured = 0;          // settings have been saved at least once
+  uint8_t  setup_done = 0;          // the web setup wizard has been completed
+  uint8_t  inherited = 0;           // WiFi settings were copied from a companion image
+  uint16_t ble_pin = 0;             // 0 = DEFAULT_BLE_PIN
+  uint8_t  ble_rebond = 0;
+  uint8_t  airlink = 0;             // run the AirLink phone bridge
+  uint8_t  airlink_pub = 0;         // ... and pass the public channel over it
+  char     airlink_ch[96] = {};     // ... plus these #hashtag channels (comma separated)
+  uint8_t  observer = 0;            // publish telemetry to the MeshOS MQTT observer
 
-  // def() order below is the author's serialisation order (the order fields are
-  // written to /prefs.json), which differs from the memory layout above.
+  uint32_t blePin() const { return ble_pin ? ble_pin : DEFAULT_BLE_PIN; }
+
   void structure() override {
     def("transport", transport);
     def("wifi_ssid", wifi_ssid, sizeof(wifi_ssid));
     def("wifi_pwd", wifi_pwd, sizeof(wifi_pwd));
     def("wifi_lock", wifi_lock);
-    def("blocked_n", blocked_n);
-    def("blocked", blocked, sizeof(blocked));
+    def("blocked_n", filter.channel_count);
+    def("blocked", filter.channels, sizeof(filter.channels));
     def("web_pwd", web_pwd, sizeof(web_pwd));
     def("configured", configured);
     def("observer", observer);
@@ -58,7 +54,7 @@ public:
     def("airlink", airlink);
     def("airlink_pub", airlink_pub);
     def("airlink_ch", airlink_ch, sizeof(airlink_ch));
-    def("entry_n", entry_n);
-    def("entry", entries, sizeof(entries));
+    def("entry_n", filter.entry_count);
+    def("entry", filter.entries, sizeof(filter.entries));
   }
 };

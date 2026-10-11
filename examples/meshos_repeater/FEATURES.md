@@ -1,9 +1,9 @@
 # MeshOS repeater — feature catalogue
 
-What the full MeshOS repeater adds on top of the stock MeshCore repeater, so the
-reconstruction covers everything. Taken from `MeshOS-Repeater-HeltecV4-v1.6.1`
-(ESP32-S3), built on MeshCore v1.17.1 (d929643). The nRF52 **Repeater Lite**
-build has only the spam filter; everything else here is full-repeater only.
+What the MeshOS repeater adds on top of the stock MeshCore repeater. The source
+was rebuilt from `MeshOS-Repeater-HeltecV4-v1.6.1` (ESP32-S3, MeshCore v1.17.1,
+d929643). The nRF52/RP2040 **Repeater Lite** build has only the spam filter;
+everything else here is full-repeater only.
 
 ## Building for a device
 
@@ -41,8 +41,10 @@ Block channels and the repeaters that spam enters through.
 - `chan.hash` (resolve a `#hashtag` or hex to a channel hash)
 - `repeat.public` get/set (repeat the public channel or not)
 - `chanstats` / `entrystats` / `clear chanstats`
-- Persisted per build (Lite: `/meshos_lite.json`).
-- Hook points: `allowPacketForward` (drop blocked), `logRx` (count heard).
+- Persisted with each build's settings (Lite: `/meshos_lite.json`, full:
+  `/meshos_net.json`).
+- One implementation for both builds: `examples/meshos_shared/SpamFilter.h`.
+  Hooked from `allowPacketForward` (drop blocked) and `logRx` (count heard).
 
 ## 2. Web interface
 Single-page app served at `/` (see `web/index.html`), backed by a JSON API:
@@ -70,29 +72,26 @@ The repeater can run its admin/web link over BLE or WiFi.
 - `set ble.pin` (6 digits)
 - Applies after reboot.
 
-## 4. AirLink bridge  — reconstructed (`AirLink.h/.cpp`)
+## 4. AirLink bridge (`AirLink.h/.cpp`)
 Bridges the MeshOS app's phone-to-phone mesh (AirLink, over BLE) to LoRa, so DMs,
 their acks and selected channels cross both ways, end-to-end encrypted. Needs
 PSRAM; up to 3 phones.
 - `set airlink` (on/off), `set airlink.channels`, `set airlink.public`
 - `airlink.status` prints the live status line.
-- Reconstructed as a `BridgeBase` hooked from `MeshOSFull::logRx`: a PSRAM-backed
-  multi-connection BLE companion transport (`PhoneLink`) carries length-prefixed
-  mesh Packets; packets are filtered (DM/ack/path always, group text/data only on
-  a selected channel, nothing from a blocked entry repeater), de-duplicated and
-  echo-suppressed, injected to LoRa via `queueInbound`, and the lifetime counters
-  match the shipped status/stats strings. 7 of the 12 AIRLINK log strings match
-  verbatim; the open gap is the per-connection BLE link-parameter negotiation
-  (`conn %u link ... request failed`), left as interval/timeout placeholders.
+- A `BridgeBase` hooked from `MeshOSFull::logRx`: a PSRAM-backed
+  multi-connection BLE transport (`PhoneLink`) carries length-prefixed mesh
+  Packets; packets are filtered (DM/ack/path always, group text/data only on a
+  selected channel, nothing from a blocked entry repeater), de-duplicated and
+  echo-suppressed, and injected to LoRa via `queueInbound`.
 
-## 5. Observer (telemetry)  — reconstructed (`Observer.h/.cpp`), MQTT
+## 5. Observer (telemetry, MQTT) (`Observer.h/.cpp`)
 Off by default. When on, connects to the MeshOS observer's MQTT broker (bare IP
 `167.99.90.25:1883`, shared device credentials) and publishes every heard packet
 to `meshos/rpt/<id>/rx` plus a signed heartbeat to `.../status`; subscribes to
 `meshos/chat/control`. Separate from NTP and update checks.
 - `set observer` (on/off), `get observer`
 
-## 6. Self-update (OTA)  — reconstructed (`SelfUpdate.h/.cpp`)
+## 6. Self-update (OTA) (`SelfUpdate.h/.cpp`)
 Three install paths:
 - **Site self-update**: `fw.check` fetches the board's entry (`rpt_heltec_v4`) from
   `https://meshcore.co.uk/fw/firmware.json`, compares versions; `fw.update [force]`
@@ -109,7 +108,7 @@ Three install paths:
   availability only, never installs on its own.
 Progress is reported through the `fw` object in `/api/status`.
 
-## 7. WiFi station + NTP  — reconstructed (`EspNet.h/.cpp`)
+## 7. WiFi station + NTP (`EspNet.h/.cpp`)
 In WiFi mode the repeater runs the config AP *and* joins the saved network as a
 station (for observer/OTA/NTP). The RTC is synced forward from NTP
 (`pool.ntp.org`, `time.google.com`). Base `clock` / `clock sync` are inherited.
@@ -123,50 +122,53 @@ and scan replies), filling in key, name and signal both ways.
 Packet/path visualisation of the mesh as seen by this repeater (`/api/graph`,
 `graph.clear`).
 
-## 10. Setup wizard  — reconstructed (`MeshOSFull`)
+## 10. Setup wizard (`MeshOSFull`)
 First-boot guided setup. Backend: `setup`/`inherited` flags in the status JSON,
-`setup.done` / `setup.reset`, and first-run detection. The wizard UI itself is in
-the extracted `web/index.html`.
-- Note: migrating WiFi from a prior MeshOS *companion* image reads that firmware's
-  own pref layout, which is not reconstructed; the first-run/inherited plumbing is.
+`setup.done` / `setup.reset`, and first-run detection. On the first boot after a
+MeshOS *companion* image, its WiFi settings are copied from `/com_prefs`. The
+wizard UI itself is in `web/index.html`.
 
-## 11. Status / prefs API  — reconstructed (`main.cpp` `buildStatusJson`)
-`/api/status` emits the full recovered schema (name/id/ver/board/heap/clock/setup/
-ble/wifi/eth/ap/mqtt/radio/air/pkts/fw/airlink/…), tying the subsystems together.
-- Honest zero/false for values not tracked: rolling 5-min/24-h airtime windows,
-  the signal card, BLE bond count.
+## 11. Status / prefs API (`main.cpp` `buildStatusJson` / `buildPrefsJson`)
+`/api/status` reports name/id/ver/board/heap/clock/setup/ble/wifi/eth/ap/mqtt/
+radio/air/pkts/fw/sig/airlink, tying the subsystems together.
 
 ## 12. Misc
 - Radio presets fetched live from `https://api.meshcore.nz/api/v1/config`.
 - MeshOS logo and banner; `ver.meshos` reports the MeshOS version (`1.6.1`).
 - `set web.password` / `web.password.clear`, `get net` / `get ip` / `get web`.
 
-## Reconstruction status
-- Spam filter: reconstructed on nRF52 (branch `meshos-repeater-lite`) and in the
-  full ESP32 build (`MeshOSFull`).
-- Web assets: extracted byte-exact (`web/`).
-- Reconstructed as source (full ESP32 build compiles, flash 31.7%): config struct,
-  command dispatch, config read/write, web server + all `/api` tab backends +
-  full status JSON, transport switching, WiFi-station + NTP, BLE transport, trace,
-  finder, graph, observer (MQTT), AirLink, and **self-update (OTA)** + setup wizard
-  backend — every major repeater subsystem now has a source reconstruction.
-- Endpoint audit: every command and `/api/*` call the extracted web UI issues is
-  handled (MeshOS verbs in our source, base radio/advert/identity settings via the
-  inherited `CommonCLI`; manual-OTA `/update/identity` + `POST /update` served).
-- The earlier minor gaps are now closed:
-  - AirLink: per-connection BLE link-parameter negotiation (`updateConnParams` +
-    the `conn %u link…` / `conn %u is…` / capability-summary lines) and the heap
-    note — **all 12/12 AIRLINK strings now match** — and the companion probe is
-    answered with the real `meshos-rpt/1` JSON banner.
-  - Companion WiFi migration: reads `/com_prefs` (shared ConfigSerializer JSON) and
-    carries over `wifi_ssid`/`wifi_pwd`/transport on first run.
-  - `/meshos_names.bin`: persistent neighbour-name cache, learned from adverts and
-    used to fill finder/graph names (`NAMES: %d … loaded/saved`).
-  - Status JSON: real `sig` (last-heard signal), rolling 5-min/24-h airtime windows
-    (minute-bucketed; 24-h is extrapolated from the 5-min buckets), and BLE bond
-    count (`esp_ble_get_bond_device_num`).
-  - `meshos/chat/control` is logged only — that matches the shipped firmware (its
-    sole control-topic string is the log line).
-- Remaining approximations (not gaps in coverage): the AirLink phone *name* is
-  shown as `(unnamed)` until a companion handshake supplies it, and the 24-h
-  airtime window is extrapolated rather than bucketed over a full day.
+## Code map
+
+| File | What it does |
+|------|--------------|
+| `../meshos_shared/SpamFilter.h` | spam filter lists, matching, counters and hex/argument parsing (both builds) |
+| `MeshOSPrefs.h` | full-repeater settings (`/meshos_net.json`) |
+| `MeshOSFull.h/.cpp` | the full repeater mesh class: filter + settings CLI, packet log, web API payloads, observer payloads, names cache, airtime |
+| `main.cpp` | setup/loop, `/api/status` + `/api/prefs`, CLI commands that need AirLink/self-update/WiFi |
+| `WebInterface.h/.cpp` | WiFi AP + HTTP routes |
+| `AirLink.h/.cpp` | AirLink phone bridge and its BLE transport |
+| `Observer.h/.cpp` | MQTT observer client |
+| `SelfUpdate.h/.cpp` | `fw.*` commands and OTA install paths |
+| `EspNet.h/.cpp` | WiFi station + NTP |
+| `MiniJson.h` | tiny flat-JSON readers (manifest, `/com_prefs`) |
+| `web/`, `web_assets.h` | the embedded web pages (see `web/README.md`) |
+| `../meshos_repeater_lite/` | the Lite build |
+
+## Known issues
+
+Behaviour kept as found; worth fixing separately:
+
+- The full build never calls `SpamFilter::noteHeard`, so the Channels tab's
+  heard-channel / heard-entry lists (`chans`, `en` in `/api/channels`) stay empty.
+- AirLink resolves `airlink.channels` hashtags without the `#` and with a 32-byte
+  secret, unlike the spam filter (`#` included, 16 bytes), so the same hashtag
+  can resolve to different channel hashes.
+- `airTx24` / `airRx24` scale the 5-minute window by 288/5 instead of 288, so the
+  24 h airtime reads 5x low; the hourly buckets are not used.
+- The status "sig" hop reads `path[path_len - 1]` using the *encoded* `path_len`,
+  which is only right for 1-byte path hashes.
+- `MESHOS_BOARD_NAME` / `MESHOS_HW_NAME` default to the Heltec V4 for every
+  board, and `FW_BOARD_KEY` defaults to `rpt_heltec_v4`, so other boards report
+  (and look for updates as) a Heltec V4 unless the env overrides them.
+- The observer broker credentials are compiled in (they are shared by every
+  MeshOS repeater).

@@ -5,7 +5,7 @@
 // ---------------------------------------------------------------------------
 // MeshOS self-update (OTA)
 //
-// Three install paths, all reconstructed from the shipped firmware's strings:
+// Three install paths:
 //
 //  1. Site self-update   fw.check / fw.update [force] / fw.status / fw.manifest
 //     Fetches the board's entry from a JSON manifest (default
@@ -26,8 +26,8 @@
 // A fourth path - the manual ElegantOTA upload at /update - is served by the web
 // interface and is independent of this module.
 //
-// This is a functional reconstruction (ESP32 only). The board manifest key is
-// "rpt_heltec_v4"; the status/progress fields match the recovered "fw" JSON.
+// ESP32 only. FW_BOARD_KEY picks this board's entry in the manifest; progress
+// is reported through the "fw" object in /api/status.
 // ---------------------------------------------------------------------------
 
 #ifdef ESP32
@@ -41,7 +41,7 @@
 
 class SelfUpdate {
 public:
-  enum State : uint8_t { IDLE, CHECKING, AVAILABLE, DOWNLOADING, VERIFYING, INSTALLED, FAILED_ };
+  enum State : uint8_t { IDLE, CHECKING, AVAILABLE, DOWNLOADING, VERIFYING, INSTALLED, FAILED };
 
   SelfUpdate(MeshOSFull& mesh) : _mesh(mesh) { strcpy(_manifest, FW_MANIFEST_DEFAULT); }
 
@@ -86,7 +86,7 @@ private:
   long   _checked = -1;              // epoch of last successful check, -1 = never
   bool   _check_failed = false;
   char   _err[80] = {};
-  char   _key[32] = {};             // target URL for the running/queued install
+  char   _download_url[160] = {};   // image URL for the running/queued install
   char   _want_sha[65] = {};
   bool   _manual_upload = false;
 
@@ -100,11 +100,12 @@ private:
   bool   _checking = false;
 
   bool   fetchManifest(Manifest& out);
-  void   runCheck();                  // manifest fetch + version compare (no install)
+  bool   runCheck();                  // manifest fetch + version compare (no install)
   bool   startDownloadTask();
   static void downloadTask(void* arg);
   static void checkTask(void* arg);
   void   runDownload();
+  const char* streamToFlash(class HTTPClient& http, mbedtls_sha256_context& sha);
   void   fail(const char* why);
   static const char* stateName(State s);
 };

@@ -2,10 +2,9 @@
 
 #include "MeshOSFull.h"
 
-// The MeshOS repeater's web interface: a WiFi access point serving the embedded
-// single-page app (web/index.html) and a small JSON API. This is a functional
-// reconstruction of the runtime the shipped firmware starts when transport=wifi;
-// the SPA itself is the byte-exact extracted asset.
+// The MeshOS repeater's web interface (transport = wifi): a WiFi access point
+// serving the embedded single-page app (web/index.html), its JSON API and the
+// manual firmware upload page.
 #ifdef ESP32
 
 class WebInterface {

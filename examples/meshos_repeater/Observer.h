@@ -2,10 +2,9 @@
 
 #include "MeshOSFull.h"
 
-// The MeshOS observer: when enabled, connects to the project's MQTT observer at
-// meshcore.co.uk and publishes a signed status heartbeat. Off by default and
-// operator-controlled (set observer on). Functional reconstruction of the real
-// opt-in telemetry feature; the exact broker topic/credentials are the author's.
+// The MeshOS observer (opt-in telemetry, `set observer on`). While enabled and
+// WiFi is up, connects to the MeshOS MQTT broker and publishes every heard
+// packet plus a signed status heartbeat once a minute.
 #ifdef ESP32
 
 class Observer {

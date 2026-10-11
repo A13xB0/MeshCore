@@ -45,11 +45,8 @@ void halt() {
 #include <esp_gap_ble_api.h>
 static String jbool(bool b) { return b ? "true" : "false"; }
 
-// Assemble the full /api/status JSON the web UI consumes. Lives here (not in
-// WebInterface) so it can reach every subsystem instance. Schema matches the
-// recovered status format string field-for-field; the few values this
-// reconstruction does not track (rolling 5-min/24-h airtime windows, the signal
-// card, BLE bond count) are reported as honest zero/false.
+// The /api/status JSON the web UI polls. Built here rather than in
+// WebInterface because it reports on every subsystem instance below.
 static String buildStatusJson() {
   NodePrefs* p = the_mesh.getNodePrefs();
   char id[20], pub[72];
@@ -65,17 +62,19 @@ static String buildStatusJson() {
   bool wifi_up = (WiFi.status() == WL_CONNECTED);
   String wifi_ip = wifi_up ? WiFi.localIP().toString() : String("");
   String ap_ip = WiFi.softAPIP().toString();
-  const char* tr = (the_mesh.getTransport() == 2) ? "wifi" : "ble";
+  const char* transport = the_mesh.transportName();
+  bool wifi_mode = the_mesh.isWifiTransport();
 
   char hdr[640];
   snprintf(hdr, sizeof(hdr),
     "{\"name\":\"%s\",\"id\":\"%s\",\"ver\":\"%s\",\"board\":\"%s\",\"hw\":\"%s\",\"build\":\"%s\","
     "\"role\":\"repeater\",\"uptime\":%lu,\"batt_mv\":%u,\"heap\":{\"free\":%u,\"min\":%u,\"block\":%u},"
     "\"time\":%lu,\"clock\":\"%s\",\"setup\":%s,\"inherited\":%s,\"transport\":\"%s\",\"running\":\"%s\",",
-    p->node_name, id, MESHOS_VERSION, "Heltec V4", "Heltec V4 OLED", FIRMWARE_BUILD_DATE,
+    p->node_name, id, MESHOS_VERSION, MESHOS_BOARD_NAME, MESHOS_HW_NAME, FIRMWARE_BUILD_DATE,
     (unsigned long)(millis()/1000), board.getBattMilliVolts(),
     (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getMinFreeHeap(), (unsigned)ESP.getMaxAllocHeap(),
-    (unsigned long)now, clk, jbool(the_mesh.setupDone()).c_str(), jbool(the_mesh.inheritedPrefs()).c_str(), tr, tr);
+    (unsigned long)now, clk, jbool(the_mesh.setupDone()).c_str(), jbool(the_mesh.inheritedPrefs()).c_str(),
+    transport, transport);
 
   char net[400];
   snprintf(net, sizeof(net),
@@ -83,9 +82,9 @@ static String buildStatusJson() {
     "\"wifi\":{\"ssid\":\"%s\",\"up\":%s,\"ip\":\"%s\",\"rssi\":%d},"
     "\"eth\":{\"present\":false,\"up\":false,\"ip\":\"\"},"
     "\"ap\":{\"up\":%s,\"ip\":\"%s\"},",
-    jbool(the_mesh.getTransport() != 2).c_str(), esp_ble_get_bond_device_num(),
+    jbool(!wifi_mode).c_str(), esp_ble_get_bond_device_num(),
     the_mesh.wifiSsid(), jbool(wifi_up).c_str(), wifi_ip.c_str(), wifi_up ? WiFi.RSSI() : 0,
-    jbool(the_mesh.getTransport() == 2).c_str(), ap_ip.c_str());
+    jbool(wifi_mode).c_str(), ap_ip.c_str());
 
   char radio[400];
   snprintf(radio, sizeof(radio),
@@ -93,7 +92,7 @@ static String buildStatusJson() {
     "\"radio\":{\"freq\":%.3f,\"sf\":%d,\"bw\":%.1f,\"cr\":%d,\"tx\":%d},\"lat\":%.5f,\"lon\":%.5f,"
     "\"air\":{\"tx_ms\":%lu,\"rx_ms\":%lu,\"tx5\":%lu,\"rx5\":%lu,\"s5\":%lu,\"tx24\":%lu,\"rx24\":%lu,\"s24\":%lu},"
     "\"pkts\":{\"tx_flood\":%lu,\"tx_direct\":%lu,\"rx_flood\":%lu,\"rx_direct\":%lu},",
-    pub, jbool(the_mesh.getTransport() == 2).c_str(), jbool(the_mesh.webPwdSet()).c_str(),
+    pub, jbool(wifi_mode).c_str(), jbool(the_mesh.webPwdSet()).c_str(),
     p->freq, p->sf, p->bw, p->cr, p->tx_power_dbm, p->node_lat, p->node_lon,
     the_mesh.getTotalAirTime(), the_mesh.getReceiveAirTime(),
     the_mesh.airTx5(), the_mesh.airRx5(), the_mesh.airSent5(),
@@ -110,13 +109,11 @@ static String buildStatusJson() {
   return j;
 }
 
-// /api/prefs: every editable setting, matching the recovered prefs schema. Drives
-// the Settings tab and the first-run wizard's radio/network fields.
+// /api/prefs: every editable setting. Drives the Settings tab and the setup
+// wizard's radio/network fields.
 static String buildPrefsJson() {
   NodePrefs* p = the_mesh.getNodePrefs();
   MeshOSPrefs& mp = the_mesh.meshosPrefs();
-  const char* tr = (mp.transport == 2) ? "wifi" : "ble";
-
   char a[520];
   snprintf(a, sizeof(a),
     "{\"name\":\"%s\",\"lat\":%.6f,\"lon\":%.6f,\"owner\":\"%s\",\"guest\":\"%s\","
@@ -136,44 +133,32 @@ static String buildPrefsJson() {
     "\"fem_rx_ctl\":false,\"fem_rx\":%d,\"fem_tx_ctl\":false,\"fem_tx\":%d,"
     "\"airlink\":%d,\"airlink_pub\":%d,\"airlink_ch\":\"%s\"}",
     p->interference_threshold, p->cad_enabled, p->agc_reset_interval, p->multi_acks, p->adc_multiplier,
-    tr, mp.wifi_ssid, mp.observer, (unsigned long)(mp.ble_pin ? mp.ble_pin : 123456), "Heltec V4 OLED",
+    transportName(mp.transport), mp.wifi_ssid, mp.observer, (unsigned long) mp.blePin(), MESHOS_HW_NAME,
     p->radio_fem_rxgain, p->radio_fem_txgain,
     mp.airlink, mp.airlink_pub, mp.airlink_ch);
 
   return String(a) + b;
 }
-#endif
 
-#ifdef ESP32
-// airlink.status needs the bridge instance (its live counters), so it is answered
-// here rather than in MeshOSFull. Returns true if it consumed the command.
-static bool handleAirlinkCli(const char* cmd, char* reply) {
-  if (strcmp(cmd, "airlink.status") == 0) {
+// MeshOS commands that need the subsystem instances held here (AirLink,
+// self-update, WiFi) rather than MeshOSFull. Returns true if it handled `cmd`.
+static bool handleMeshOSCli(char* cmd, char* reply) {
+  if (strcmp(cmd, "airlink.status") == 0 || strcmp(cmd, "airlink.log") == 0) {
     strcpy(reply, airlink.statusLine().c_str());
     return true;
   }
-  return false;
-}
-
-// MeshOS CLI extensions that live outside MeshOSFull (they need the bridge /
-// updater instances held here). Returns true if the command was consumed.
-static bool handleMeshOSCli(char* cmd, char* reply) {
-  if (handleAirlinkCli(cmd, reply)) return true;
-  if (strcmp(cmd, "airlink.log") == 0) { strcpy(reply, airlink.statusLine().c_str()); return true; }
   if (self_update.handleCommand(cmd, reply)) return true;
+
+  bool wifi_up = (WiFi.status() == WL_CONNECTED);
   if (strcmp(cmd, "get ip") == 0) {
-    bool up = (WiFi.status() == WL_CONNECTED);
-    strcpy(reply, up ? ("> " + WiFi.localIP().toString()).c_str() : "> not connected");
+    if (wifi_up) sprintf(reply, "> %s", WiFi.localIP().toString().c_str());
+    else strcpy(reply, "> not connected");
     return true;
   }
   if (strcmp(cmd, "get net") == 0) {
-    bool up = (WiFi.status() == WL_CONNECTED);
-    snprintf(reply, 160, "> transport %s, wifi %s%s%s, ap %s",
-             the_mesh.getTransport() == 2 ? "wifi" : "ble",
-             up ? "up " : "down",
-             up ? WiFi.localIP().toString().c_str() : "",
-             up ? "" : "",
-             WiFi.softAPIP().toString().c_str());
+    String wifi = wifi_up ? "up " + WiFi.localIP().toString() : String("down");
+    snprintf(reply, 160, "> transport %s, wifi %s, ap %s",
+             the_mesh.transportName(), wifi.c_str(), WiFi.softAPIP().toString().c_str());
     return true;
   }
   return false;
@@ -265,7 +250,7 @@ void setup() {
   the_mesh.begin(fs);
   the_mesh.beginFull(fs);
 #ifdef ESP32
-  if (the_mesh.getTransport() == 2) {
+  if (the_mesh.isWifiTransport()) {
     web_iface.setStatusProvider(buildStatusJson);
     web_iface.setPrefsProvider(buildPrefsJson);
     web_iface.setCmdHook(handleMeshOSCli);

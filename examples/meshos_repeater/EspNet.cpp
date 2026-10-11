@@ -7,14 +7,12 @@
 #include <time.h>
 
 void EspNet::beginSTA() {
-  NodePrefs* p = _mesh.getNodePrefs();
   MeshOSPrefs& mp = _mesh.meshosPrefs();
   if (!mp.wifi_ssid[0]) return;            // nothing to join
   // keep the config AP up (WebInterface started it) and add a station link
   WiFi.mode(WIFI_AP_STA);
   WiFi.begin(mp.wifi_ssid, mp.wifi_pwd);
   _sta_started = true;
-  (void)p;
 }
 
 bool EspNet::staConnected() const {

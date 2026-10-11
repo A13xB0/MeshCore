@@ -3,37 +3,26 @@
 #include "MeshOSFull.h"
 
 // ---------------------------------------------------------------------------
-// MeshOS AirLink bridge
+// MeshOS AirLink bridge (ESP32 with PSRAM only)
 //
-// AirLink links the MeshOS app's phone-to-phone mesh (carried to the repeater
-// over Bluetooth LE) to LoRa. Quoting the firmware's own web help:
+// Links the MeshOS app's phone-to-phone mesh, carried to the repeater over
+// Bluetooth LE, to LoRa. Up to AIRLINK_MAX_PHONES phones connect at once.
 //
-//   "links the MeshOS app's phone-to-phone mesh (AirLink, over Bluetooth) to
-//    LoRa: direct messages, their acks and the channels below cross both ways,
-//    end-to-end encrypted as sent. Up to 3 phones. Works in Bluetooth and WiFi
-//    mode (boards with PSRAM); applies after a restart."
+// The repeater never decrypts anything: whole mesh Packets (ciphertext as sent)
+// move between the phones and LoRa. Which packets cross is decided from the
+// packet type and, for group packets, the 1-byte channel hash:
+//   * direct messages, their acks and path returns always cross
+//   * group text/data cross only on a selected channel - the public channel
+//     (airlink.public) plus any #hashtags in airlink.channels
+//   * channel packets whose entry repeater is blocked by the spam filter never
+//     reach the phones
+//   * adverts and control traffic do not cross
 //
-// The repeater never decrypts anything: it moves whole mesh Packets (ciphertext
-// as sent) between the phones and LoRa, and it decides *which* packets cross by
-// looking only at the packet type and, for group packets, the 1-byte channel
-// hash. Direct messages / their acks / path returns always cross; group text and
-// group data cross only when their channel is selected (the public channel, gated
-// by airlink.public, plus any hashtag channels in airlink.channels). Channel
-// messages whose entry repeater is blocked by the spam filter are kept off the
-// phones, matching the Finder help ("Block a spammer's entry repeater and its
-// channel messages are not repeated here or passed to AirLink phones; direct
-// messages, acks and adverts still go through").
+// Phone frames are a 1-byte length followed by a serialised mesh Packet. A
+// short frame starting with 0x00 is a companion-protocol probe (the app thinks
+// this is a companion radio) and is answered with a JSON banner instead.
 //
-// This is a *functional* reconstruction, gated to ESP32 + PSRAM like the real
-// thing. The bridging policy, de-duplication, echo suppression, per-phone slot
-// accounting and the status/stats counters are reconstructed faithfully from the
-// shipped firmware's string table and web interface. The multi-connection BLE
-// GATT companion transport (PhoneLink, below) is rebuilt on the same ESP32 BLE
-// stack the single-connection SerialBLEInterface uses; the exact on-wire layout
-// of the companion frames is not recoverable from strings, so PhoneLink exchanges
-// length-prefixed mesh Packets and answers a companion-protocol probe with the
-// repeater banner ("not a companion radio - use the app's Repeater manager"),
-// which is all the recovered strings evidence.
+// Settings apply after a restart.
 // ---------------------------------------------------------------------------
 
 #ifdef ESP32
@@ -48,8 +37,7 @@
   #define AIRLINK_MAX_CH       16       // extra hashtag channels (airlink_ch holds ~that many)
 #endif
 
-// Lifetime counters, published in airlink.status and the /api status JSON. Field
-// names mirror the recovered status format string exactly.
+// Lifetime counters, published in airlink.status and the /api/status JSON.
 struct AirLinkStats {
   uint32_t rx = 0;             // mesh Packets received from phones
   uint32_t dup = 0;            // ... that we had already seen (dropped)
@@ -87,7 +75,7 @@ public:
 
   // status line for `get airlink` / airlink.status and the web status card
   String statusLine();
-  // "...,"public":%s,"chans":"%s"" fragment for the web status JSON
+  // the fields of the "airlink" object in /api/status (without the braces)
   String statsJson();
 
 private:
@@ -119,10 +107,9 @@ private:
   bool   channelSelected(uint8_t hash) const;
   bool   shouldCross(const mesh::Packet* pkt) const;   // does this packet cross the bridge?
   void   relayToPhones(mesh::Packet* pkt);
-  void   relayToPhonesRaw(const uint8_t* framed, uint16_t len);
   void   drainPhones();                            // pull phone frames -> LoRa / other phones
   String bannerJson();                             // the "meshos-rpt/1" probe reply
-  void   onPhoneJoined(uint16_t conn, uint16_t mtu, uint16_t interval, uint16_t timeout);
+  void   onPhoneJoined(uint16_t conn, uint16_t mtu);
   void   onPhoneLeft(uint16_t conn, uint8_t reason, int8_t last_dbm, int8_t weakest_dbm);
   int    findSlot(uint16_t conn) const;
   bool   rateOk(PhoneSlot& p);                     // per-phone send cap

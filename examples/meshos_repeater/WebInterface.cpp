@@ -12,7 +12,7 @@
 static WebInterface::CmdHook g_cmd_hook = NULL;
 void WebInterface::setCmdHook(CmdHook fn) { g_cmd_hook = fn; }
 
-// run a CLI command and capture its reply
+// Runs a CLI command from the web console and returns its reply.
 static String runCommand(MeshOSFull& mesh, const String& cmd) {
   char buf[200];
   strncpy(buf, cmd.c_str(), sizeof(buf) - 1);
@@ -24,6 +24,7 @@ static String runCommand(MeshOSFull& mesh, const String& cmd) {
   return String(reply);
 }
 
+// Fallback /api/status when main.cpp has not set a status provider.
 static String statusJson(MeshOSFull& mesh) {
   NodePrefs* p = mesh.getNodePrefs();
   char id[20];
@@ -56,8 +57,8 @@ void WebInterface::begin(const char* ap_ssid, const char* ap_pwd) {
     req->send(r);
   });
 
-  // Manual firmware upload (the original ElegantOTA-style page served above).
-  // update.html GETs the device identity, then streams a .bin by multipart POST.
+  // Manual firmware upload (the ElegantOTA page served above): update.html GETs
+  // the device identity, then streams a .bin by multipart POST.
   server->on("/update/identity", HTTP_GET, [mesh](AsyncWebServerRequest* req) {
     char id[20];
     mesh::Utils::toHex(id, mesh->self_id.pub_key, 3);
@@ -120,11 +121,9 @@ void WebInterface::begin(const char* ap_ssid, const char* ap_pwd) {
   server->on("/api/trace", HTTP_GET, [mesh](AsyncWebServerRequest* req) {
     req->send(200, "application/json", mesh->traceJson());
   });
-  for (const char* path : { "/api/nothing_left" }) {
-    server->on(path, HTTP_GET, [](AsyncWebServerRequest* req) {
-      req->send(200, "application/json", "{}");
-    });
-  }
+  server->on("/api/nothing_left", HTTP_GET, [](AsyncWebServerRequest* req) {
+    req->send(200, "application/json", "{}");
+  });
   server->on("/api/graph", HTTP_GET, [mesh](AsyncWebServerRequest* req) {
     req->send(200, "application/json", mesh->graphJson());
   });

@@ -1,183 +1,134 @@
 #include "MeshOSFull.h"
+#include "MiniJson.h"
 #include "helpers/AbstractBridge.h"
 
-static const char* meshos_hex_chars = "0123456789ABCDEF";
-
-static void toHex(const uint8_t* src, uint8_t len, char* dest) {
-  for (uint8_t i = 0; i < len; i++) {
-    *dest++ = meshos_hex_chars[src[i] >> 4];
-    *dest++ = meshos_hex_chars[src[i] & 0x0F];
-  }
-  *dest = 0;
-}
+using namespace meshos;
 
 static uint8_t parseOnOff(const char* arg, uint8_t current) {
-  while (*arg == ' ') arg++;
+  arg = skipSpaces(arg);
   if (strcmp(arg, "on") == 0 || strcmp(arg, "1") == 0) return 1;
   if (strcmp(arg, "off") == 0 || strcmp(arg, "0") == 0) return 0;
   return current;
 }
 
-static int hexNibble(char c) {
-  if (c >= '0' && c <= '9') return c - '0';
-  if (c >= 'a' && c <= 'f') return c - 'a' + 10;
-  if (c >= 'A' && c <= 'F') return c - 'A' + 10;
-  return -1;
-}
+static const char* onOff(bool on) { return on ? "on" : "off"; }
 
-static bool parseChannelHash(const char* arg, uint8_t& hash) {
-  while (*arg == ' ') arg++;
-  if (*arg == '#') {
-    uint8_t secret[16];
-    mesh::Utils::sha256(secret, sizeof(secret), (const uint8_t*) arg, strlen(arg));
-    mesh::Utils::sha256(&hash, 1, secret, sizeof(secret));
-    return true;
+// ===========================================================================
+// Settings file
+// ===========================================================================
+
+void MeshOSFull::saveConfig() {
+  if (!_fs) return;
+  _fs->remove(MESHOS_NET_FILE);
+#if defined(NRF52_PLATFORM) || defined(STM32_PLATFORM)
+  File file = _fs->open(MESHOS_NET_FILE, FILE_O_WRITE);
+#elif defined(RP2040_PLATFORM)
+  File file = _fs->open(MESHOS_NET_FILE, "w");
+#else
+  File file = _fs->open(MESHOS_NET_FILE, "w", true);
+#endif
+  if (file) {
+    _prefs.saveSerial(file);
+    file.close();
   }
-  if (arg[0] == '0' && (arg[1] | 0x20) == 'x') arg += 2;
-  size_t len = strlen(arg);
-  if ((unsigned)(len - 1) > 1) return false;
-  uint8_t v = 0;
-  for (size_t i = 0; i < len; i++) {
-    uint8_t c = arg[i];
-    v <<= 4;
-    if ((uint8_t)(c - '0') < 10)      v |= c - '0';
-    else if ((uint8_t)(c - 'a') < 6)  v |= c - 'a' + 10;
-    else if ((uint8_t)(c - 'A') < 6)  v |= c - 'A' + 10;
-    else return false;
-  }
-  hash = v;
-  return true;
 }
 
-static bool parseEntryId(const char* arg, uint8_t* id, uint8_t& len) {
-  if (arg[0] == '0' && (arg[1] | 0x20) == 'x') arg += 2;
-  memset(id, 0, MESHOS_MAX_ENTRY_LEN);
-  int nibbles = 0;
-  bool ok = *arg != 0;
-  for ( ; ok && *arg; arg++) {
-    if (*arg == ' ') continue;
-    int v = hexNibble(*arg);
-    if (v < 0 || nibbles >= MESHOS_MAX_ENTRY_LEN * 2) ok = false;
-    else { id[nibbles / 2] = (id[nibbles / 2] << 4) | v; nibbles++; }
-  }
-  if (!ok || nibbles < 2 || (nibbles & 1)) return false;
-  len = nibbles / 2;
-  return true;
-}
-
-bool MeshOSFull::blockChannel(uint8_t hash) {
-  if (isChannelBlocked(hash)) return true;
-  if (prefs.blocked_n >= MESHOS_MAX_BLOCKED) return false;
-  prefs.blocked[prefs.blocked_n++] = hash;
-  saveFilter();
-  return true;
-}
-
-bool MeshOSFull::unblockChannel(uint8_t hash) {
-  uint8_t n = prefs.blocked_n;
-  for (uint8_t i = 0; i < n; i++) {
-    if (prefs.blocked[i] == hash) {
-      for (uint8_t j = i; j + 1 < n; j++) prefs.blocked[j] = prefs.blocked[j + 1];
-      prefs.blocked_n = n - 1;
-      saveFilter();
-      return true;
+void MeshOSFull::beginFull(FILESYSTEM* fs) {
+  _fs = fs;
+  bool found = fs->exists(MESHOS_NET_FILE);
+  if (found) {
+    File file = fs->open(MESHOS_NET_FILE);
+    if (file) {
+      _prefs.loadSerial(file);
+      file.close();
     }
   }
-  return false;
+  _filter.sanitise();
+  loadNames();
+
+  _first_run = !_prefs.configured && !found;
+  if (_first_run) inheritCompanionWifi();
 }
 
-bool MeshOSFull::addEntry(const uint8_t* id, uint8_t len) {
-  if ((uint8_t)(len - 1) >= MESHOS_MAX_ENTRY_LEN) return false;
-  for (uint8_t i = 0; i != MESHOS_MAX_ENTRIES && i < prefs.entry_n; i++) {
-    if (prefs.entries[i].len == len && memcmp(prefs.entries[i].id, id, len) == 0) return true;
-  }
-  if (prefs.entry_n >= MESHOS_MAX_ENTRIES) return false;
-  MeshOSEntry* e = &prefs.entries[prefs.entry_n];
-  memset(e, 0, sizeof(*e));
-  e->len = len;
-  memcpy(e->id, id, len);
-  entry_hits[prefs.entry_n] = 0;
-  prefs.entry_n++;
-  saveFilter();
-  return true;
+// On the first boot after replacing a MeshOS companion image, carry over its
+// WiFi settings. The companion saved them in /com_prefs, in the same
+// ConfigSerializer JSON format, so the keys can be read straight out of it.
+void MeshOSFull::inheritCompanionWifi() {
+  if (!_fs->exists("/com_prefs")) return;
+  File file = _fs->open("/com_prefs");
+  if (!file) return;
+
+  String json;
+  while (file.available() && json.length() < 2048) json += (char) file.read();
+  file.close();
+
+  char ssid[sizeof(_prefs.wifi_ssid)] = {};
+  char pwd[sizeof(_prefs.wifi_pwd)] = {};
+  if (!extractJsonStr(json.c_str(), "wifi_ssid", ssid, sizeof(ssid)) || !ssid[0]) return;
+  extractJsonStr(json.c_str(), "wifi_pwd", pwd, sizeof(pwd));
+
+  StrHelper::strncpy(_prefs.wifi_ssid, ssid, sizeof(_prefs.wifi_ssid));
+  StrHelper::strncpy(_prefs.wifi_pwd, pwd, sizeof(_prefs.wifi_pwd));
+  _prefs.transport = TRANSPORT_WIFI;   // the companion was running over WiFi
+  _prefs.inherited = 1;
+  saveConfig();                        // so this only happens once
+  Serial.printf("NET: first run - inherited WiFi '%s' from the companion prefs, transport %s\n",
+                _prefs.wifi_ssid, transportName());
 }
 
-bool MeshOSFull::removeEntry(const uint8_t* id, uint8_t len) {
-  int i = findEntry(id, len);
-  if (i < 0) return false;
-  uint8_t n = prefs.entry_n;
-  for (uint8_t j = i; j + 1 < n; j++) {
-    prefs.entries[j] = prefs.entries[j + 1];
-    entry_hits[j] = entry_hits[j + 1];
-  }
-  prefs.entry_n = n - 1;
-  memset(&prefs.entries[prefs.entry_n], 0, sizeof(MeshOSEntry));
-  entry_hits[prefs.entry_n] = 0;
-  saveFilter();
-  return true;
+bool MeshOSFull::extractJsonStr(const char* json, const char* key, char* out, size_t out_size) {
+  return minijson::getString(json, key, out, out_size);
 }
 
-int MeshOSFull::matchEntry(const mesh::Packet* packet) const {
-  if (prefs.entry_n == 0) return -1;
-  uint8_t type = packet->getPayloadType();
-  if ((type != PAYLOAD_TYPE_GRP_TXT && type != PAYLOAD_TYPE_GRP_DATA) || !packet->isRouteFlood()) return -1;
-  uint8_t pl = packet->path_len;                 // low byte: hops + hash size
-  uint8_t hash_size = (pl >> 6) + 1;
-  if ((pl & 63) == 0 || hash_size > MESHOS_MAX_ENTRY_LEN) return -1;
-  for (uint8_t i = 0; i != MESHOS_MAX_ENTRIES && i < prefs.entry_n; i++) {
-    uint8_t n = prefs.entries[i].len;
-    if ((uint8_t)(n - 1) >= MESHOS_MAX_ENTRY_LEN) continue;
-    if (n > hash_size) n = hash_size;
-    if (memcmp(prefs.entries[i].id, packet->path, n) == 0) return i;
-  }
-  return -1;
+// ===========================================================================
+// CLI
+// ===========================================================================
+
+void MeshOSFull::handleCommand(uint32_t sender_timestamp, char* command, char* reply) {
+  if (handleFilterCommand(command, reply)) return;
+  if (handleConfigCommand(command, reply)) return;
+  if (handleTraceCommand(command, reply)) return;
+  MyMesh::handleCommand(sender_timestamp, command, reply);
 }
 
-bool MeshOSFull::allowPacketForward(const mesh::Packet* packet) {
-  uint8_t type = packet->getPayloadType();
-  if ((type == PAYLOAD_TYPE_GRP_TXT || type == PAYLOAD_TYPE_GRP_DATA) && packet->payload_len > 0
-      && isChannelBlocked(packet->payload[0])) {
-    return false;
-  }
-  int idx = matchEntry(packet);
-  if (idx < 0) return MyMesh::allowPacketForward(packet);
-  if (entry_hits[idx] != 0xFFFFFFFF) entry_hits[idx]++;
-  return false;
-}
-
-// Dispatches the MeshOS spam-filter commands. In the shipped firmware these live
-// inside one big CLI/web command handler; kept standalone here during reconstruction.
+// block.channel / unblock.channel / block.entry / unblock.entry / chan.hash
 bool MeshOSFull::handleFilterCommand(char* command, char* reply) {
-  if (memcmp(command, "block.channel ", 14) == 0 || memcmp(command, "unblock.channel ", 16) == 0) {
-    bool block = command[0] == 'b';
-    char* arg = &command[block ? 14 : 16];
+  char* arg;
+
+  bool block_channel = (arg = afterPrefix(command, "block.channel ")) != NULL;
+  if (block_channel || (arg = afterPrefix(command, "unblock.channel "))) {
     uint8_t hash;
     if (!parseChannelHash(arg, hash)) {
       strcpy(reply, "Err - give a hex hash (00-FF) or a #hashtag");
-      return true;
-    }
-    if (block) {
-      sprintf(reply, blockChannel(hash) ? "OK - channel %02X blocked (not repeated)" : "Err - block list full", hash);
+    } else if (block_channel) {
+      bool ok = _filter.blockChannel(hash);
+      if (ok) saveConfig();
+      sprintf(reply, ok ? "OK - channel %02X blocked (not repeated)" : "Err - block list full", hash);
     } else {
-      sprintf(reply, unblockChannel(hash) ? "OK - channel %02X unblocked" : "Err - channel %02X was not blocked", hash);
+      bool ok = _filter.unblockChannel(hash);
+      if (ok) saveConfig();
+      sprintf(reply, ok ? "OK - channel %02X unblocked" : "Err - channel %02X was not blocked", hash);
     }
     return true;
   }
 
-  if (memcmp(command, "block.entry ", 12) == 0 || memcmp(command, "unblock.entry ", 14) == 0) {
-    bool block = command[0] == 'b';
-    char* arg = &command[block ? 12 : 14];
-    uint8_t id[MESHOS_MAX_ENTRY_LEN], len;
+  bool block_entry = (arg = afterPrefix(command, "block.entry ")) != NULL;
+  if (block_entry || (arg = afterPrefix(command, "unblock.entry "))) {
+    uint8_t id[FILTER_MAX_ENTRY_LEN], len;
     if (!parseEntryId(arg, id, len)) {
       strcpy(reply, "Err - give the repeater's ID in hex, 1-3 bytes (e.g. A0 or A07E)");
       return true;
     }
-    char hex[MESHOS_MAX_ENTRY_LEN * 2 + 2];
-    toHex(id, len, hex);
-    if (block) {
-      sprintf(reply, addEntry(id, len) ? "OK - channel messages entering via %s are not repeated" : "Err - entry block list full", hex);
+    char hex[FILTER_ENTRY_HEX_LEN];
+    bytesToHex(id, len, hex);
+    if (block_entry) {
+      bool ok = _filter.addEntry(id, len);
+      if (ok) saveConfig();
+      sprintf(reply, ok ? "OK - channel messages entering via %s are not repeated" : "Err - entry block list full", hex);
     } else {
-      sprintf(reply, removeEntry(id, len) ? "OK - entry %s unblocked" : "Err - entry %s was not blocked", hex);
+      bool ok = _filter.removeEntry(id, len);
+      if (ok) saveConfig();
+      sprintf(reply, ok ? "OK - entry %s unblocked" : "Err - entry %s was not blocked", hex);
     }
     return true;
   }
@@ -189,488 +140,168 @@ bool MeshOSFull::handleFilterCommand(char* command, char* reply) {
   return false;
 }
 
-void MeshOSFull::saveConfig() {
-  if (!_net_fs) return;
-  _net_fs->remove(MESHOS_NET_FILE);
-#if defined(NRF52_PLATFORM) || defined(STM32_PLATFORM)
-  File file = _net_fs->open(MESHOS_NET_FILE, FILE_O_WRITE);
-#elif defined(RP2040_PLATFORM)
-  File file = _net_fs->open(MESHOS_NET_FILE, "w");
-#else
-  File file = _net_fs->open(MESHOS_NET_FILE, "w", true);
-#endif
-  if (file) {
-    prefs.saveSerial(file);
-    file.close();
-  }
-}
-
-void MeshOSFull::beginFull(FILESYSTEM* fs) {
-  _net_fs = fs;
-  if (fs->exists(MESHOS_NET_FILE)) {
-    File file = fs->open(MESHOS_NET_FILE);
-    if (file) {
-      prefs.loadSerial(file);
-      file.close();
-    }
-  }
-  if (prefs.blocked_n > MESHOS_MAX_BLOCKED) prefs.blocked_n = MESHOS_MAX_BLOCKED;
-  if (prefs.entry_n > MESHOS_MAX_ENTRIES) prefs.entry_n = MESHOS_MAX_ENTRIES;
-  loadNames();
-
-  // First run: no MeshOS config yet. Carry over WiFi + transport from a MeshOS
-  // *companion* image that was previously on this board. The companion wrote its
-  // settings to /com_prefs in the shared ConfigSerializer JSON format, so we read
-  // the wifi_ssid / wifi_pwd keys straight out of it (no struct-offset guessing).
-  _first_run = (!prefs.configured && !fs->exists(MESHOS_NET_FILE));
-  if (_first_run && fs->exists("/com_prefs")) {
-    File cf = fs->open("/com_prefs");
-    if (cf) {
-      String blob;
-      while (cf.available() && blob.length() < 2048) blob += (char) cf.read();
-      cf.close();
-      char ssid[33] = {}, pwd[64] = {};
-      if (extractJsonStr(blob.c_str(), "wifi_ssid", ssid, sizeof(ssid)) && ssid[0]) {
-        extractJsonStr(blob.c_str(), "wifi_pwd", pwd, sizeof(pwd));
-        StrHelper::strncpy(prefs.wifi_ssid, ssid, sizeof(prefs.wifi_ssid));
-        StrHelper::strncpy(prefs.wifi_pwd, pwd, sizeof(prefs.wifi_pwd));
-        prefs.transport = 2;          // the companion ran over WiFi
-        prefs.inherited = 1;
-        saveConfig();                 // persist so we inherit only once
-        Serial.printf("NET: first run - inherited WiFi '%s' from the companion prefs, transport %s\n",
-                      prefs.wifi_ssid, prefs.transport == 2 ? "wifi" : "ble");
-      }
-    }
-  }
-}
-
-// Extract a JSON string value (`"key":"value"`) from a ConfigSerializer blob.
-bool MeshOSFull::extractJsonStr(const char* blob, const char* key, char* out, size_t outsz) {
-  char pat[40];
-  snprintf(pat, sizeof(pat), "\"%s\"", key);
-  const char* p = strstr(blob, pat);
-  if (!p) return false;
-  p = strchr(p + strlen(pat), ':');
-  if (!p) return false;
-  p++;
-  while (*p == ' ') p++;
-  if (*p != '"') return false;
-  p++;
-  size_t n = 0;
-  while (*p && *p != '"' && n < outsz - 1) out[n++] = *p++;
-  out[n] = 0;
-  return true;
-}
-
-// Network/web/radio-front-end settings of the MeshOS repeater. These apply after a reboot.
+// Network / web / BLE / observer / AirLink settings. Most apply after a reboot.
 bool MeshOSFull::handleConfigCommand(char* command, char* reply) {
-  if (memcmp(command, "set transport ", 14) == 0) {
-    char* arg = &command[14];
-    while (*arg == ' ') arg++;
-    if (strcmp(arg, "ble") == 0) prefs.transport = 0;
-    else if (strcmp(arg, "wifi") == 0) prefs.transport = 2;
-    else { strcpy(reply, "Err - transport must be ble or wifi"); return true; }
+  char* arg;
+
+  // ---- set ----
+  if ((arg = afterPrefix(command, "set transport "))) {
+    if (strcmp(arg, "ble") == 0) {
+      _prefs.transport = TRANSPORT_BLE;
+    } else if (strcmp(arg, "wifi") == 0) {
+      _prefs.transport = TRANSPORT_WIFI;
+    } else {
+      strcpy(reply, "Err - transport must be ble or wifi");
+      return true;
+    }
     saveConfig();
-    sprintf(reply, "OK - transport %s, reboot to apply", prefs.transport == 2 ? "wifi" : "ble");
+    sprintf(reply, "OK - transport %s, reboot to apply", transportName());
     return true;
   }
-  if (memcmp(command, "set wifi.ssid ", 14) == 0) {
-    char* arg = &command[14];
-    while (*arg == ' ') arg++;
-    StrHelper::strncpy(prefs.wifi_ssid, arg, sizeof(prefs.wifi_ssid));
+  if ((arg = afterPrefix(command, "set wifi.ssid "))) {
+    StrHelper::strncpy(_prefs.wifi_ssid, arg, sizeof(_prefs.wifi_ssid));
     saveConfig();
-    strcpy(reply, prefs.wifi_ssid[0] ? "OK" : "OK - ssid cleared (wired only)");
+    strcpy(reply, _prefs.wifi_ssid[0] ? "OK" : "OK - ssid cleared (wired only)");
     return true;
   }
-  if (memcmp(command, "set wifi.pwd ", 13) == 0) {
-    char* arg = &command[13];
-    while (*arg == ' ') arg++;
-    StrHelper::strncpy(prefs.wifi_pwd, arg, sizeof(prefs.wifi_pwd));
+  if ((arg = afterPrefix(command, "set wifi.pwd "))) {
+    StrHelper::strncpy(_prefs.wifi_pwd, arg, sizeof(_prefs.wifi_pwd));
     saveConfig();
     strcpy(reply, "OK");
     return true;
   }
-  if (memcmp(command, "set web.password ", 17) == 0 || memcmp(command, "web.password.change ", 20) == 0) {
-    char* arg = command[3] == '.' ? &command[20] : &command[17];  // web.password.change vs set web.password
-    while (*arg == ' ') arg++;
-    StrHelper::strncpy(prefs.web_pwd, arg, sizeof(prefs.web_pwd));
+  if ((arg = afterPrefix(command, "set web.password ")) || (arg = afterPrefix(command, "web.password.change "))) {
+    StrHelper::strncpy(_prefs.web_pwd, arg, sizeof(_prefs.web_pwd));
     saveConfig();
     strcpy(reply, "OK - web password changed, sign in again");
     return true;
   }
   if (strcmp(command, "web.password.clear") == 0) {
-    prefs.web_pwd[0] = 0;
+    _prefs.web_pwd[0] = 0;
     saveConfig();
     strcpy(reply, "OK - web password changed, sign in again");
     return true;
   }
-  if (memcmp(command, "set ble.pin ", 12) == 0) {
-    prefs.ble_pin = atoi(&command[12]);
+  if ((arg = afterPrefix(command, "set ble.pin "))) {
+    _prefs.ble_pin = atoi(arg);
     saveConfig();
     sprintf(reply, "OK - Bluetooth PIN set to %06lu, reboot to apply. Phones paired with the old PIN must forget the repeater and pair again",
-            (unsigned long)prefs.ble_pin);
+            (unsigned long) _prefs.ble_pin);
     return true;
   }
-  if (memcmp(command, "set observer ", 13) == 0) {
-    prefs.observer = parseOnOff(&command[13], prefs.observer);
+  if ((arg = afterPrefix(command, "set observer "))) {
+    _prefs.observer = parseOnOff(arg, _prefs.observer);
     saveConfig();
-    sprintf(reply, "OK - observer %s", prefs.observer ? "on" : "off");
+    sprintf(reply, "OK - observer %s", onOff(_prefs.observer));
     return true;
   }
-  if (memcmp(command, "set airlink.public ", 19) == 0) {
-    prefs.airlink_pub = parseOnOff(&command[19], prefs.airlink_pub);
-    saveConfig();
-    strcpy(reply, "OK");
-    return true;
-  }
-  if (memcmp(command, "set airlink.channels ", 21) == 0) {
-    char* arg = &command[21];
-    while (*arg == ' ') arg++;
-    StrHelper::strncpy(prefs.airlink_ch, arg, sizeof(prefs.airlink_ch));
+  // (airlink.public / airlink.channels must be tested before plain "set airlink ")
+  if ((arg = afterPrefix(command, "set airlink.public "))) {
+    _prefs.airlink_pub = parseOnOff(arg, _prefs.airlink_pub);
     saveConfig();
     strcpy(reply, "OK");
     return true;
   }
-  if (memcmp(command, "set airlink ", 12) == 0) {
-    prefs.airlink = parseOnOff(&command[12], prefs.airlink);
+  if ((arg = afterPrefix(command, "set airlink.channels "))) {
+    StrHelper::strncpy(_prefs.airlink_ch, arg, sizeof(_prefs.airlink_ch));
     saveConfig();
-    sprintf(reply, "OK - airlink %s, reboot to apply", prefs.airlink ? "on" : "off");
+    strcpy(reply, "OK");
     return true;
   }
+  if ((arg = afterPrefix(command, "set airlink "))) {
+    _prefs.airlink = parseOnOff(arg, _prefs.airlink);
+    saveConfig();
+    sprintf(reply, "OK - airlink %s, reboot to apply", onOff(_prefs.airlink));
+    return true;
+  }
+
+  // ---- get ----
   if (strcmp(command, "get transport") == 0) {
-    sprintf(reply, "> %s", prefs.transport == 2 ? "wifi" : "ble");
+    sprintf(reply, "> %s", transportName());
     return true;
   }
   if (strcmp(command, "get web") == 0) {
-    sprintf(reply, "> %s", prefs.web_pwd[0] ? "password set" : "no password");
+    sprintf(reply, "> %s", webPwdSet() ? "password set" : "no password");
     return true;
   }
   if (strcmp(command, "get ble.pin") == 0) {
-    sprintf(reply, "> %06lu", (unsigned long)(prefs.ble_pin ? prefs.ble_pin : 123456));
+    sprintf(reply, "> %06lu", (unsigned long) getBlePin());
     return true;
   }
   if (strcmp(command, "get wifi.ssid") == 0) {
-    sprintf(reply, "> %s", prefs.wifi_ssid);
+    sprintf(reply, "> %s", _prefs.wifi_ssid);
     return true;
   }
   if (strcmp(command, "get observer") == 0) {
-    sprintf(reply, "> %s", prefs.observer ? "on" : "off");
+    sprintf(reply, "> %s", onOff(_prefs.observer));
     return true;
   }
   if (strcmp(command, "get airlink") == 0) {
-    sprintf(reply, "> %s", prefs.airlink ? "on" : "off");
+    sprintf(reply, "> %s", onOff(_prefs.airlink));
     return true;
   }
+
+  // ---- setup wizard ----
   if (strcmp(command, "setup.done") == 0) {
-    prefs.setup_done = 1;
-    prefs.configured = 1;
+    _prefs.setup_done = 1;
+    _prefs.configured = 1;
     saveConfig();
     strcpy(reply, "OK - setup complete");
     return true;
   }
   if (strcmp(command, "setup.reset") == 0) {
-    prefs.setup_done = 0;
+    _prefs.setup_done = 0;
     saveConfig();
     strcpy(reply, "OK - the setup wizard will show when the page next loads");
     return true;
   }
+
+  // ---- misc ----
   if (strcmp(command, "ver.meshos") == 0) {
     sprintf(reply, "> MeshOS repeater %s", MESHOS_VERSION);
     return true;
   }
   if (strcmp(command, "graph.clear") == 0) {
-    memset(chan_heard, 0, sizeof(chan_heard));
-    memset(entry_heard, 0, sizeof(entry_heard));
+    memset(_filter.chan_heard, 0, sizeof(_filter.chan_heard));
+    memset(_filter.entry_heard, 0, sizeof(_filter.entry_heard));
+    _filter.not_repeated = 0;
     _log_head = _log_count = 0;
     _log_seq = 0;
-    not_repeated = 0;
     strcpy(reply, "OK - graph cleared");
     return true;
   }
   return false;
 }
 
-void MeshOSFull::handleCommand(uint32_t sender_timestamp, char* command, char* reply) {
-  if (handleFilterCommand(command, reply)) return;
-  if (handleConfigCommand(command, reply)) return;
-  if (handleTraceCommand(command, reply)) return;
-  MyMesh::handleCommand(sender_timestamp, command, reply);
-}
-
-// /api/channels for the web UI: blocked lists + which channels/entry repeaters
-// have been heard, built from the reconstructed filter state.
-String MeshOSFull::channelsJson() {
-  String j = "{\"public\":";
-  j += PUBLIC_CHANNEL_HASH;
-  j += ",\"not_repeated\":";
-  j += not_repeated;
-
-  j += ",\"blocked\":[";
-  for (uint8_t i = 0; i < prefs.blocked_n && i < MESHOS_MAX_BLOCKED; i++) {
-    if (i) j += ',';
-    j += prefs.blocked[i];
-  }
-
-  j += "],\"chans\":[";
-  bool first = true;
-  for (int h = 0; h < 256; h++) {
-    if (chan_heard[h] == 0) continue;
-    if (!first) j += ',';
-    j += '['; j += h; j += ','; j += chan_heard[h]; j += ']';
-    first = false;
-  }
-
-  j += "],\"en\":[";
-  first = true;
-  for (int h = 0; h < 256; h++) {
-    if (entry_heard[h] == 0) continue;
-    if (!first) j += ',';
-    j += '['; j += h; j += ','; j += entry_heard[h]; j += ']';
-    first = false;
-  }
-
-  j += "],\"entry_blocked\":[";
-  for (uint8_t i = 0; i < prefs.entry_n && i < MESHOS_MAX_ENTRIES; i++) {
-    char hex[MESHOS_MAX_ENTRY_LEN * 2 + 2];
-    toHex(prefs.entries[i].id, prefs.entries[i].len, hex);
-    if (i) j += ',';
-    j += "[\""; j += hex; j += "\","; j += entry_hits[i]; j += ",\"\"]";
-  }
-  j += "]}";
-  return j;
-}
-
-void MeshOSFull::recordPkt(mesh::Packet* pkt, int len, uint8_t dir, uint8_t fl) {
-  PktLog& e = _log[_log_head];
-  e.seq = ++_log_seq;
-  e.t = millis() / 1000;
-  e.dir = dir;
-  e.type = pkt->getPayloadType();
-  e.route = pkt->getRouteType();
-  e.len = len;
-  e.hops = pkt->path_len & 63;
-  e.hs = (pkt->path_len >> 6) + 1;
-  e.snr4 = dir == 0 ? (int8_t)(_last_snr * 4) : 0;
-  e.rssi = dir == 0 ? (int16_t)_last_rssi : 0;
-  bool grp = (e.type == PAYLOAD_TYPE_GRP_TXT || e.type == PAYLOAD_TYPE_GRP_DATA);
-  e.ch = (grp && pkt->payload_len > 0) ? pkt->payload[0] : 255;
-  e.fl = fl;
-  uint16_t n = (uint16_t)e.hops * e.hs;
-  if (n > sizeof(e.path)) n = sizeof(e.path);
-  memcpy(e.path, pkt->path, n);
-  _log_head = (_log_head + 1) % LOG_SIZE;
-  if (_log_count < LOG_SIZE) _log_count++;
-}
-
-void MeshOSFull::logRx(mesh::Packet* pkt, int len, float score) {
-  MyMesh::logRx(pkt, len, score);
-  uint8_t fl = 0;
-  uint8_t type = pkt->getPayloadType();
-  if (type == PAYLOAD_TYPE_GRP_TXT || type == PAYLOAD_TYPE_GRP_DATA) {
-    if (pkt->payload_len > 0 && isChannelBlocked(pkt->payload[0])) fl |= 2;
-    else if (matchEntry(pkt) >= 0) fl |= 1;
-  }
-  recordPkt(pkt, len, 0, fl);
-  if (prefs.observer) observerCaptureRx(pkt);
-  // record last-heard signal for the status "sig" card
-  _sig_time = getRTCClock()->getCurrentTime();
-  _sig_direct = pkt->isRouteDirect();
-  _sig_hops = pkt->path_len;
-  _sig_hop = pkt->path_len ? pkt->path[pkt->path_len - 1] : 0;
-  // AirLink: relay qualifying LoRa traffic we heard to the connected phones
-  if (_airlink) _airlink->sendPacket(pkt);
-}
-
-void MeshOSFull::logTx(mesh::Packet* pkt, int len) {
-  MyMesh::logTx(pkt, len);
-  recordPkt(pkt, len, 1, 0);
-}
-
-String MeshOSFull::logJson(uint32_t since) {
-  String j = "{\"e\":[";
-  bool first = true;
-  for (uint8_t k = 0; k < _log_count; k++) {
-    uint8_t idx = (_log_head + LOG_SIZE - _log_count + k) % LOG_SIZE;
-    PktLog& e = _log[idx];
-    if (e.seq <= since) continue;
-    uint16_t n = (uint16_t)e.hops * e.hs;
-    if (n > sizeof(e.path)) n = sizeof(e.path);
-    char path[sizeof(e.path) * 2 + 2];
-    toHex(e.path, n, path);
-    if (!first) j += ',';
-    j += '['; j += e.seq; j += ','; j += e.t; j += ','; j += e.dir; j += ','; j += e.type;
-    j += ','; j += e.route; j += ','; j += e.len; j += ','; j += e.hops; j += ','; j += e.snr4;
-    j += ','; j += e.rssi; j += ",\""; j += path; j += "\","; j += e.ch; j += ','; j += e.fl;
-    j += ','; j += e.hs; j += ']';
-    first = false;
-  }
-  j += "]}";
-  return j;
-}
-
-// /api/finder: repeaters/nodes heard directly, from the base neighbour list.
-// name is filled from the persistent names cache (adverts); type / their_snr
-// still need an active scan, so stay null until one runs.
-String MeshOSFull::finderJson() {
-  uint32_t now = getRTCClock()->getCurrentTime();
-  String j = "{\"n\":[";
-  bool first = true;
-#if MAX_NEIGHBOURS
-  const NeighbourInfo* nb = getNeighbours();
-  for (int i = 0; i < getMaxNeighbours(); i++) {
-    if (nb[i].heard_timestamp == 0) continue;
-    char id[16];
-    mesh::Utils::toHex(id, nb[i].id.pub_key, 6);
-    long age = (long)now - (long)nb[i].heard_timestamp;
-    if (!first) j += ',';
-    const char* nm = lookupName(nb[i].id.pub_key);
-    j += "{\"id\":\""; j += id; j += "\",";
-    j += "\"hash\":"; j += nb[i].id.pub_key[0]; j += ',';
-    j += "\"known\":8,";
-    if (nm) { j += "\"name\":\""; j += nm; j += "\","; } else { j += "\"name\":null,"; }
-    j += "\"type\":2,";
-    j += "\"age\":"; j += age; j += ',';
-    j += "\"snr\":"; j += String(nb[i].snr / 4.0, 1); j += ',';
-    j += "\"their_snr\":null}";
-    first = false;
-  }
-#endif
-  j += "]}";
-  return j;
-}
-
-// Signed status heartbeat published to the MeshOS observer when enabled.
-String MeshOSFull::observerHeartbeat() {
-  char id[20];
-  mesh::Utils::toHex(id, self_id.pub_key, 6);
-  NodePrefs* p = getNodePrefs();
-  String body = "{";
-  body += "\"name\":\"";    body += p->node_name;  body += "\",";
-  body += "\"id\":\"";      body += id;            body += "\",";
-  body += "\"ver\":\"" FIRMWARE_VERSION "\",";
-  body += "\"uptime\":";   body += millis() / 1000; body += ',';
-  body += "\"transport\":\""; body += (prefs.transport == 2 ? "wifi" : "ble"); body += "\",";
-  body += "\"blocked\":";  body += prefs.blocked_n; body += ',';
-  body += "\"entries\":";  body += prefs.entry_n;   body += ',';
-  body += "\"not_repeated\":"; body += not_repeated;
-  body += '}';
-
-  uint8_t sig[64];
-  self_id.sign(sig, (const uint8_t*) body.c_str(), body.length());
-  char sighex[130];
-  mesh::Utils::toHex(sighex, sig, sizeof(sig));
-
-  String out = body.substring(0, body.length() - 1);  // reopen before the closing brace
-  out += ",\"sig\":\""; out += sighex; out += "\"}";
-  return out;
-}
-
-// capture a heard packet for the observer /rx queue (dropping oldest if full)
-void MeshOSFull::observerCaptureRx(mesh::Packet* pkt) {
-  ObsRx& e = _obs_q[(_obs_head + _obs_count) % OBS_Q];
-  e.t = millis() / 1000;
-  e.snr4 = (int8_t)(_last_snr * 4);
-  e.rssi = (int16_t)_last_rssi;
-  e.len = pkt->writeTo(e.raw);
-  if (_obs_count < OBS_Q) _obs_count++;
-  else { _obs_head = (_obs_head + 1) % OBS_Q; _obs_dropped++; }
-}
-
-// build the next /rx payload (signed), matching the firmware's format
-bool MeshOSFull::observerNextRx(String& out) {
-  if (_obs_count == 0) return false;
-  ObsRx& e = _obs_q[_obs_head];
-  _obs_head = (_obs_head + 1) % OBS_Q;
-  _obs_count--;
-
-  char raw[sizeof(e.raw) * 2 + 2];
-  mesh::Utils::toHex(raw, e.raw, e.len);
-  char body[sizeof(raw) + 96];
-  snprintf(body, sizeof(body), "{\"t\":%lu,\"snr\":%.2f,\"rssi\":%d,\"len\":%u,\"raw\":\"%s\"}",
-           (unsigned long)e.t, e.snr4 / 4.0, e.rssi, e.len, raw);
-
-  uint8_t sig[64];
-  self_id.sign(sig, (const uint8_t*) body, strlen(body));
-  char sighex[130];
-  mesh::Utils::toHex(sighex, sig, sizeof(sig));
-
-  out = String(body);
-  out = out.substring(0, out.length() - 1);
-  out += ",\"sig\":\""; out += sighex; out += "\"}";
-  return true;
-}
-
-// build the region tree the way RegionMap::printChildRegions does, '|'-separated
-static void buildRegionTree(RegionMap& rm, const RegionEntry* parent, int indent, uint16_t home_id, String& out) {
-  for (int i = 0; i < indent; i++) out += ' ';
-  const char* nm = parent->name;
-  if (nm[0] == '#') nm++;                       // skip_hash
-  out += nm;
-  if (parent->id == home_id) out += '^';
-  if (!(parent->flags & REGION_DENY_FLOOD)) out += " F";
-  out += '|';
-  for (int i = 0; i < rm.getCount(); i++) {
-    const RegionEntry* r = rm.getByIdx(i);
-    if (r->parent == parent->id) buildRegionTree(rm, r, indent + 1, home_id, out);
-  }
-}
-
-String MeshOSFull::regionsJson() {
-  RegionMap& rm = getRegionMap();
-  const RegionEntry* home = rm.getHomeRegion();
-  const RegionEntry* def = rm.getDefaultRegion();
-  uint16_t home_id = home ? home->id : 0xFFFF;
-  String tree;
-  buildRegionTree(rm, rm.getRoot(), 0, home_id, tree);
-  String j = "{\"tree\":\""; j += tree; j += "\",";
-  j += "\"default\":\""; j += (def ? def->name : "<null>"); j += "\",";
-  j += "\"home\":\""; j += (home ? home->name : "*"); j += "\"}";
-  return j;
-}
-
-// /api/graph: node 0 is this repeater; directly-heard neighbours hang off it.
-// A full path-topology graph needs per-path tracking (not reconstructed); this
-// is the one-hop view the Network tab can already draw.
-String MeshOSFull::graphJson() {
-  uint32_t now = getRTCClock()->getCurrentTime();
-  char me[20];
-  mesh::Utils::toHex(me, self_id.pub_key, 6);
-  String j = "{\"n\":[[0,\""; j += me; j += "\",8,2,0,0,0,0]";
-#if MAX_NEIGHBOURS
-  const NeighbourInfo* nb = getNeighbours();
-  for (int i = 0; i < getMaxNeighbours(); i++) {
-    if (nb[i].heard_timestamp == 0) continue;
-    char id[20];
-    mesh::Utils::toHex(id, nb[i].id.pub_key, 6);
-    long age = (long)now - (long)nb[i].heard_timestamp;
-    j += ",[0,\""; j += id; j += "\",8,1,1,"; j += nb[i].snr; j += ','; j += nb[i].snr; j += ','; j += age; j += ']';
-  }
-#endif
-  j += "]}";
-  return j;
-}
-
-// "trace H0,H1,..." : send a trace packet along the given hop hashes.
+// "trace H0,H1,..." : send a trace packet along the given 1-byte hop hashes.
 bool MeshOSFull::handleTraceCommand(char* command, char* reply) {
-  if (memcmp(command, "trace ", 6) != 0) return false;
-  uint8_t hops[16];
-  uint8_t n = 0;
-  const char* p = command + 6;
-  while (*p && n < 16) {
+  char* arg = afterPrefix(command, "trace ");
+  if (!arg) return false;
+
+  uint8_t hops[TRACE_MAX_HOPS];
+  uint8_t hop_count = 0;
+  const char* p = arg;
+  while (*p && hop_count < TRACE_MAX_HOPS) {
     while (*p == ' ' || *p == ',') p++;
     int hi = hexNibble(p[0]);
     int lo = p[0] ? hexNibble(p[1]) : -1;
     if (hi < 0 || lo < 0) break;
-    hops[n++] = (hi << 4) | lo;
+    hops[hop_count++] = (hi << 4) | lo;
     p += 2;
   }
-  if (n == 0) { strcpy(reply, "Err - enter at least one hop hash"); return true; }
+  if (hop_count == 0) {
+    strcpy(reply, "Err - enter at least one hop hash");
+    return true;
+  }
 
   mesh::Packet* pkt = createTrace(++_trace_tag, 0, 0);
-  if (!pkt) { strcpy(reply, "Err - packet pool empty"); return true; }
+  if (!pkt) {
+    strcpy(reply, "Err - packet pool empty");
+    return true;
+  }
   _trace_active = true;
   _trace_done = false;
-  sendDirect(pkt, hops, n);
+  sendDirect(pkt, hops, hop_count);
   strcpy(reply, "OK");
   return true;
 }
@@ -678,133 +309,458 @@ bool MeshOSFull::handleTraceCommand(char* command, char* reply) {
 void MeshOSFull::onTraceRecv(mesh::Packet* packet, uint32_t tag, uint32_t auth_code, uint8_t flags,
                              const uint8_t* path_snrs, const uint8_t* path_hashes, uint8_t path_len) {
   MyMesh::onTraceRecv(packet, tag, auth_code, flags, path_snrs, path_hashes, path_len);
-  if (_trace_active && tag == _trace_tag) {
-    _trace_len = path_len > sizeof(_trace_hashes) ? sizeof(_trace_hashes) : path_len;
-    memcpy(_trace_hashes, path_hashes, _trace_len);
-    memcpy(_trace_snrs, path_snrs, _trace_len);
-    _trace_flags = flags;
-    _trace_done = true;
+  if (!_trace_active || tag != _trace_tag) return;
+
+  _trace_len = path_len > TRACE_MAX_HOPS ? TRACE_MAX_HOPS : path_len;
+  memcpy(_trace_hashes, path_hashes, _trace_len);
+  memcpy(_trace_snrs, path_snrs, _trace_len);
+  _trace_flags = flags;
+  _trace_done = true;
+}
+
+// ===========================================================================
+// Packet hooks
+// ===========================================================================
+
+bool MeshOSFull::allowPacketForward(const mesh::Packet* packet) {
+  if (_filter.shouldDrop(packet)) return false;
+  return MyMesh::allowPacketForward(packet);
+}
+
+void MeshOSFull::logRxRaw(float snr, float rssi, const uint8_t raw[], int len) {
+  _last_snr = snr;
+  _last_rssi = rssi;
+  MyMesh::logRxRaw(snr, rssi, raw, len);
+}
+
+void MeshOSFull::logRx(mesh::Packet* pkt, int len, float score) {
+  MyMesh::logRx(pkt, len, score);
+
+  uint8_t flags = 0;
+  if (isGroupPayload(pkt->getPayloadType())) {
+    if (pkt->payload_len > 0 && _filter.isChannelBlocked(pkt->payload[0])) flags |= LOG_FLAG_CHANNEL_BLOCKED;
+    else if (_filter.matchEntry(pkt) >= 0) flags |= LOG_FLAG_ENTRY_BLOCKED;
   }
+  recordPacket(pkt, len, DIR_RX, flags);
+
+  if (_prefs.observer) queueForObserver(pkt);
+
+  _sig_time = getRTCClock()->getCurrentTime();
+  _sig_direct = pkt->isRouteDirect();
+  _sig_path_len = pkt->path_len;
+  _sig_last_hop = pkt->path_len ? pkt->path[pkt->path_len - 1] : 0;
+
+  if (_airlink) _airlink->sendPacket(pkt);   // AirLink decides whether phones get it
 }
 
-String MeshOSFull::traceJson() {
-  if (!_trace_done) return "{\"ok\":false}";
-  _trace_active = false;
-  String j = "{\"ok\":true,\"flags\":"; j += _trace_flags; j += ",\"hops\":[";
-  for (uint8_t i = 0; i < _trace_len; i++) {
-    if (i) j += ',';
-    j += '['; j += _trace_hashes[i]; j += ','; j += (int)(int8_t)_trace_snrs[i]; j += ']';
-  }
-  j += "]}";
-  return j;
-}
-
-// ---------------------------------------------------------------------------
-// Neighbour-name cache (/meshos_names.bin)
-// ---------------------------------------------------------------------------
-#define MESHOS_NAMES_FILE "/meshos_names.bin"
-
-const char* MeshOSFull::lookupName(const uint8_t* pub) const {
-  for (uint8_t i = 0; i < _names_n; i++)
-    if (memcmp(_names[i].pub, pub, 4) == 0) return _names[i].name;
-  return NULL;
-}
-
-void MeshOSFull::putName(const uint8_t* pub, const char* name) {
-  if (!name || !name[0]) return;
-  for (uint8_t i = 0; i < _names_n; i++) {
-    if (memcmp(_names[i].pub, pub, 4) == 0) {
-      if (strncmp(_names[i].name, name, sizeof(_names[i].name)) != 0) {
-        StrHelper::strncpy(_names[i].name, name, sizeof(_names[i].name));
-        _names_dirty = true; _names_save_at = millis() + 5000;
-      }
-      return;
-    }
-  }
-  uint8_t slot = (_names_n < NAMES_MAX) ? _names_n++ : (_names[0].pub[0] % NAMES_MAX);
-  memcpy(_names[slot].pub, pub, 4);
-  StrHelper::strncpy(_names[slot].name, name, sizeof(_names[slot].name));
-  _names_dirty = true; _names_save_at = millis() + 5000;
-}
-
-void MeshOSFull::loadNames() {
-  if (!_net_fs || !_net_fs->exists(MESHOS_NAMES_FILE)) return;
-  File f = _net_fs->open(MESHOS_NAMES_FILE);
-  if (!f) return;
-  _names_n = 0;
-  while (f.available() >= (int)sizeof(NameEntry) && _names_n < NAMES_MAX) {
-    f.read((uint8_t*)&_names[_names_n], sizeof(NameEntry));
-    _names[_names_n].name[sizeof(_names[_names_n].name) - 1] = 0;
-    _names_n++;
-  }
-  f.close();
-  Serial.printf("NAMES: %d neighbour names loaded\n", (int)_names_n);
-}
-
-void MeshOSFull::saveNames() {
-  if (!_net_fs) return;
-#if defined(ESP32) || defined(RP2040_PLATFORM)
-  File f = _net_fs->open(MESHOS_NAMES_FILE, "w");
-#else
-  _net_fs->remove(MESHOS_NAMES_FILE);
-  File f = _net_fs->open(MESHOS_NAMES_FILE, FILE_O_WRITE);
-#endif
-  if (!f) return;
-  for (uint8_t i = 0; i < _names_n; i++) f.write((const uint8_t*)&_names[i], sizeof(NameEntry));
-  f.close();
-  _names_dirty = false;
-  Serial.printf("NAMES: %d neighbour names saved\n", (int)_names_n);
+void MeshOSFull::logTx(mesh::Packet* pkt, int len) {
+  MyMesh::logTx(pkt, len);
+  recordPacket(pkt, len, DIR_TX, 0);
 }
 
 void MeshOSFull::onAdvertRecv(mesh::Packet* packet, const mesh::Identity& id, uint32_t timestamp,
                               const uint8_t* app_data, size_t app_data_len) {
   MyMesh::onAdvertRecv(packet, id, timestamp, app_data, app_data_len);
   AdvertDataParser parser(app_data, app_data_len);
-  if (parser.isValid() && parser.hasName()) putName(id.pub_key, parser.getName());
+  if (parser.isValid() && parser.hasName()) rememberName(id.pub_key, parser.getName());
 }
 
-// ---------------------------------------------------------------------------
-// Rolling airtime windows + last-heard signal
-// ---------------------------------------------------------------------------
-void MeshOSFull::sampleAirtime() {
-  unsigned long now = millis();
-  uint32_t tx = getTotalAirTime(), rx = getReceiveAirTime();
-  uint32_t sent = getNumSentFlood() + getNumSentDirect();
-  if (_air_next_min == 0) {   // first call: seed anchors
-    _air_last_tx = tx; _air_last_rx = rx; _air_last_sent = sent;
-    _air_next_min = now + 60000; _air_next_hr = now + 3600000; return;
+// ===========================================================================
+// Packet log (/api/log)
+// ===========================================================================
+
+void MeshOSFull::recordPacket(mesh::Packet* pkt, int len, uint8_t dir, uint8_t flags) {
+  LoggedPacket& e = _log[_log_head];
+  e.seq = ++_log_seq;
+  e.time = millis() / 1000;
+  e.dir = dir;
+  e.type = pkt->getPayloadType();
+  e.route = pkt->getRouteType();
+  e.len = len;
+  e.hops = pkt->getPathHashCount();
+  e.hash_size = pkt->getPathHashSize();
+  e.snr_x4 = dir == DIR_RX ? (int8_t)(_last_snr * 4) : 0;
+  e.rssi = dir == DIR_RX ? (int16_t) _last_rssi : 0;
+  e.channel = (isGroupPayload(e.type) && pkt->payload_len > 0) ? pkt->payload[0] : 255;
+  e.flags = flags;
+  uint16_t path_bytes = min((uint16_t)(e.hops * e.hash_size), (uint16_t) sizeof(e.path));
+  memcpy(e.path, pkt->path, path_bytes);
+
+  _log_head = (_log_head + 1) % LOG_SIZE;
+  if (_log_count < LOG_SIZE) _log_count++;
+}
+
+// {"e":[[seq,time,dir,type,route,len,hops,snr_x4,rssi,"path",channel,flags,hash_size],...]}
+String MeshOSFull::logJson(uint32_t since) {
+  String j = "{\"e\":[";
+  bool first = true;
+  for (uint8_t k = 0; k < _log_count; k++) {
+    uint8_t idx = (_log_head + LOG_SIZE - _log_count + k) % LOG_SIZE;   // oldest first
+    const LoggedPacket& e = _log[idx];
+    if (e.seq <= since) continue;
+
+    uint16_t path_bytes = min((uint16_t)(e.hops * e.hash_size), (uint16_t) sizeof(e.path));
+    char path[sizeof(e.path) * 2 + 2];
+    bytesToHex(e.path, path_bytes, path);
+
+    if (!first) j += ',';
+    first = false;
+    j += '[';
+    j += e.seq;    j += ',';
+    j += e.time;   j += ',';
+    j += e.dir;    j += ',';
+    j += e.type;   j += ',';
+    j += e.route;  j += ',';
+    j += e.len;    j += ',';
+    j += e.hops;   j += ',';
+    j += e.snr_x4; j += ',';
+    j += e.rssi;   j += ",\"";
+    j += path;     j += "\",";
+    j += e.channel; j += ',';
+    j += e.flags;  j += ',';
+    j += e.hash_size;
+    j += ']';
   }
-  if ((long)(now - _air_next_min) >= 0) {
-    _air_next_min = now + 60000;
-    AirSample& b = _air_min[_air_min_i]; _air_min_i = (_air_min_i + 1) % AIR_MIN;
-    b.tx = tx - _air_last_tx; b.rx = rx - _air_last_rx; b.sent = sent - _air_last_sent;
-    _air_last_tx = tx; _air_last_rx = rx; _air_last_sent = sent;
-  }
-  if ((long)(now - _air_next_hr) >= 0) {
-    _air_next_hr = now + 3600000;
-    AirSample& b = _air_hr[_air_hr_i]; _air_hr_i = (_air_hr_i + 1) % AIR_HR;
-    // sum the last minute-buckets' worth is approximate; store the hour delta via anchors
-    b.tx = tx; b.rx = rx; b.sent = sent;   // store absolute; diff handled in getters
+  j += "]}";
+  return j;
+}
+
+// ===========================================================================
+// Other web API payloads
+// ===========================================================================
+
+static void appendHeardList(String& j, const uint8_t counts[256]) {
+  bool first = true;
+  for (int hash = 0; hash < 256; hash++) {
+    if (counts[hash] == 0) continue;
+    if (!first) j += ',';
+    first = false;
+    j += '['; j += hash; j += ','; j += counts[hash]; j += ']';
   }
 }
 
-uint32_t MeshOSFull::airTx5() const  { uint32_t s=0; for (auto&b:_air_min) s+=b.tx;   return s; }
-uint32_t MeshOSFull::airRx5() const  { uint32_t s=0; for (auto&b:_air_min) s+=b.rx;   return s; }
-uint32_t MeshOSFull::airSent5() const{ uint32_t s=0; for (auto&b:_air_min) s+=b.sent; return s; }
-uint32_t MeshOSFull::airTx24() const { uint32_t s=0; for (auto&b:_air_min) s+=b.tx;   return s * 288 / AIR_MIN; } // rough extrapolation
-uint32_t MeshOSFull::airRx24() const { uint32_t s=0; for (auto&b:_air_min) s+=b.rx;   return s * 288 / AIR_MIN; }
-uint32_t MeshOSFull::airSent24() const{ return getNumSentFlood() + getNumSentDirect(); }
+// {"public":17,"not_repeated":N,"blocked":[hash,...],"chans":[[hash,count],...],
+//  "en":[[hash,count],...],"entry_blocked":[["A07E",hits,""],...]}
+String MeshOSFull::channelsJson() {
+  const FilterLists& lists = _filter.lists();
+  String j = "{\"public\":";
+  j += PUBLIC_CHANNEL_HASH;
+  j += ",\"not_repeated\":";
+  j += _filter.not_repeated;
+
+  j += ",\"blocked\":[";
+  for (uint8_t i = 0; i < _filter.channelCount(); i++) {
+    if (i) j += ',';
+    j += lists.channels[i];
+  }
+
+  j += "],\"chans\":[";
+  appendHeardList(j, _filter.chan_heard);
+  j += "],\"en\":[";
+  appendHeardList(j, _filter.entry_heard);
+
+  j += "],\"entry_blocked\":[";
+  for (uint8_t i = 0; i < _filter.entryCount(); i++) {
+    char hex[FILTER_ENTRY_HEX_LEN];
+    bytesToHex(lists.entries[i].id, lists.entries[i].len, hex);
+    if (i) j += ',';
+    j += "[\""; j += hex; j += "\","; j += _filter.entry_hits[i]; j += ",\"\"]";
+  }
+  j += "]}";
+  return j;
+}
+
+// /api/finder: nodes heard directly, from the base repeater's neighbour table.
+// Names come from the names cache; type and their_snr need an active scan,
+// which is not implemented, so they are fixed / null.
+String MeshOSFull::finderJson() {
+  uint32_t now = getRTCClock()->getCurrentTime();
+  String j = "{\"n\":[";
+#if MAX_NEIGHBOURS
+  const NeighbourInfo* neighbours = getNeighbours();
+  bool first = true;
+  for (int i = 0; i < getMaxNeighbours(); i++) {
+    const NeighbourInfo& nb = neighbours[i];
+    if (nb.heard_timestamp == 0) continue;
+
+    char id[16];
+    mesh::Utils::toHex(id, nb.id.pub_key, 6);
+    long age = (long) now - (long) nb.heard_timestamp;
+    const char* name = lookupName(nb.id.pub_key);
+
+    if (!first) j += ',';
+    first = false;
+    j += "{\"id\":\""; j += id; j += "\",";
+    j += "\"hash\":"; j += nb.id.pub_key[0]; j += ',';
+    j += "\"known\":8,";
+    if (name) { j += "\"name\":\""; j += name; j += "\","; }
+    else      { j += "\"name\":null,"; }
+    j += "\"type\":2,";   // repeater
+    j += "\"age\":"; j += age; j += ',';
+    j += "\"snr\":"; j += String(nb.snr / 4.0, 1); j += ',';
+    j += "\"their_snr\":null}";
+  }
+#endif
+  j += "]}";
+  return j;
+}
+
+// /api/graph: node 0 is this repeater, with the directly-heard neighbours
+// around it (a one-hop view). Each node is [0,"id",8,kind,hops,snr,snr,age].
+String MeshOSFull::graphJson() {
+  uint32_t now = getRTCClock()->getCurrentTime();
+  char self_hex[20];
+  mesh::Utils::toHex(self_hex, self_id.pub_key, 6);
+  String j = "{\"n\":[[0,\""; j += self_hex; j += "\",8,2,0,0,0,0]";
+#if MAX_NEIGHBOURS
+  const NeighbourInfo* neighbours = getNeighbours();
+  for (int i = 0; i < getMaxNeighbours(); i++) {
+    const NeighbourInfo& nb = neighbours[i];
+    if (nb.heard_timestamp == 0) continue;
+    char id[20];
+    mesh::Utils::toHex(id, nb.id.pub_key, 6);
+    long age = (long) now - (long) nb.heard_timestamp;
+    j += ",[0,\""; j += id; j += "\",8,1,1,";
+    j += nb.snr; j += ','; j += nb.snr; j += ','; j += age; j += ']';
+  }
+#endif
+  j += "]}";
+  return j;
+}
+
+// Builds the region tree in the same text form as RegionMap::printChildRegions,
+// one region per '|'-separated line: indent, name, '^' for home, " F" if floods
+// are allowed.
+static void buildRegionTree(RegionMap& map, const RegionEntry* region, int indent, uint16_t home_id, String& out) {
+  for (int i = 0; i < indent; i++) out += ' ';
+  const char* name = region->name;
+  if (name[0] == '#') name++;
+  out += name;
+  if (region->id == home_id) out += '^';
+  if (!(region->flags & REGION_DENY_FLOOD)) out += " F";
+  out += '|';
+  for (int i = 0; i < map.getCount(); i++) {
+    const RegionEntry* child = map.getByIdx(i);
+    if (child->parent == region->id) buildRegionTree(map, child, indent + 1, home_id, out);
+  }
+}
+
+String MeshOSFull::regionsJson() {
+  RegionMap& map = getRegionMap();
+  const RegionEntry* home = map.getHomeRegion();
+  const RegionEntry* def = map.getDefaultRegion();
+  String tree;
+  buildRegionTree(map, map.getRoot(), 0, home ? home->id : 0xFFFF, tree);
+
+  String j = "{\"tree\":\""; j += tree; j += "\",";
+  j += "\"default\":\""; j += (def ? def->name : "<null>"); j += "\",";
+  j += "\"home\":\""; j += (home ? home->name : "*"); j += "\"}";
+  return j;
+}
+
+// {"ok":true,"flags":F,"hops":[[hash,snr_x4],...]} once a reply has arrived
+String MeshOSFull::traceJson() {
+  if (!_trace_done) return "{\"ok\":false}";
+  _trace_active = false;
+  String j = "{\"ok\":true,\"flags\":"; j += _trace_flags; j += ",\"hops\":[";
+  for (uint8_t i = 0; i < _trace_len; i++) {
+    if (i) j += ',';
+    j += '['; j += _trace_hashes[i]; j += ','; j += (int)(int8_t) _trace_snrs[i]; j += ']';
+  }
+  j += "]}";
+  return j;
+}
 
 String MeshOSFull::sigJson() {
   if (_sig_time == 0) return String("{\"valid\":0}");
   uint32_t age = getRTCClock()->getCurrentTime() - _sig_time;
-  char hop[4]; snprintf(hop, sizeof(hop), "%02X", _sig_hop);
   char buf[160];
   snprintf(buf, sizeof(buf),
-    "{\"valid\":1,\"age\":%lu,\"snr\":%.2f,\"rssi\":%d,\"hop\":\"%s\",\"hops\":%u,\"route\":\"%s\"}",
-    (unsigned long)age, _last_snr, (int)_last_rssi, hop, _sig_hops, _sig_direct ? "D" : "F");
+    "{\"valid\":1,\"age\":%lu,\"snr\":%.2f,\"rssi\":%d,\"hop\":\"%02X\",\"hops\":%u,\"route\":\"%s\"}",
+    (unsigned long) age, _last_snr, (int) _last_rssi, _sig_last_hop, _sig_path_len, _sig_direct ? "D" : "F");
   return String(buf);
 }
+
+// ===========================================================================
+// Observer payloads
+// ===========================================================================
+
+// Signs `json` with this node's identity and returns it with a "sig" field
+// (hex Ed25519 signature over the original text) added before the closing '}'.
+String MeshOSFull::appendSignature(const String& json) {
+  uint8_t sig[SIGNATURE_SIZE];
+  self_id.sign(sig, (const uint8_t*) json.c_str(), json.length());
+  char sig_hex[SIGNATURE_SIZE * 2 + 2];
+  mesh::Utils::toHex(sig_hex, sig, sizeof(sig));
+
+  String out = json.substring(0, json.length() - 1);
+  out += ",\"sig\":\""; out += sig_hex; out += "\"}";
+  return out;
+}
+
+String MeshOSFull::observerHeartbeat() {
+  char id[20];
+  mesh::Utils::toHex(id, self_id.pub_key, 6);
+  NodePrefs* p = getNodePrefs();
+
+  String body = "{";
+  body += "\"name\":\"";      body += p->node_name;           body += "\",";
+  body += "\"id\":\"";        body += id;                     body += "\",";
+  body += "\"ver\":\"" FIRMWARE_VERSION "\",";
+  body += "\"uptime\":";      body += millis() / 1000;        body += ',';
+  body += "\"transport\":\""; body += transportName();        body += "\",";
+  body += "\"blocked\":";     body += _filter.lists().channel_count; body += ',';
+  body += "\"entries\":";     body += _filter.lists().entry_count;   body += ',';
+  body += "\"not_repeated\":"; body += _filter.not_repeated;
+  body += '}';
+  return appendSignature(body);
+}
+
+// Queue a heard packet for the observer's rx topic (drops the oldest if full).
+void MeshOSFull::queueForObserver(mesh::Packet* pkt) {
+  QueuedRx& e = _obs_queue[(_obs_head + _obs_count) % OBSERVER_QUEUE_SIZE];
+  e.time = millis() / 1000;
+  e.snr_x4 = (int8_t)(_last_snr * 4);
+  e.rssi = (int16_t) _last_rssi;
+  e.len = pkt->writeTo(e.raw);
+  if (_obs_count < OBSERVER_QUEUE_SIZE) {
+    _obs_count++;
+  } else {
+    _obs_head = (_obs_head + 1) % OBSERVER_QUEUE_SIZE;
+    _obs_dropped++;
+  }
+}
+
+bool MeshOSFull::observerNextRx(String& out) {
+  if (_obs_count == 0) return false;
+  const QueuedRx& e = _obs_queue[_obs_head];
+  _obs_head = (_obs_head + 1) % OBSERVER_QUEUE_SIZE;
+  _obs_count--;
+
+  char raw_hex[sizeof(e.raw) * 2 + 2];
+  mesh::Utils::toHex(raw_hex, e.raw, e.len);
+  char body[sizeof(raw_hex) + 96];
+  snprintf(body, sizeof(body), "{\"t\":%lu,\"snr\":%.2f,\"rssi\":%d,\"len\":%u,\"raw\":\"%s\"}",
+           (unsigned long) e.time, e.snr_x4 / 4.0, e.rssi, e.len, raw_hex);
+
+  out = appendSignature(String(body));
+  return true;
+}
+
+// ===========================================================================
+// Neighbour-name cache (/meshos_names.bin: an array of NameEntry records)
+// ===========================================================================
+
+const char* MeshOSFull::lookupName(const uint8_t* pub) const {
+  for (uint8_t i = 0; i < _names_count; i++) {
+    if (memcmp(_names[i].pub, pub, NAME_KEY_LEN) == 0) return _names[i].name;
+  }
+  return NULL;
+}
+
+void MeshOSFull::rememberName(const uint8_t* pub, const char* name) {
+  if (!name || !name[0]) return;
+
+  for (uint8_t i = 0; i < _names_count; i++) {
+    if (memcmp(_names[i].pub, pub, NAME_KEY_LEN) != 0) continue;
+    if (strncmp(_names[i].name, name, sizeof(_names[i].name)) != 0) {
+      StrHelper::strncpy(_names[i].name, name, sizeof(_names[i].name));
+      _names_dirty = true;
+      _names_save_at = millis() + NAMES_SAVE_DELAY_MS;
+    }
+    return;
+  }
+
+  // new node: append, or when full overwrite a pseudo-randomly chosen slot
+  uint8_t slot = (_names_count < NAMES_MAX) ? _names_count++ : (_names[0].pub[0] % NAMES_MAX);
+  memcpy(_names[slot].pub, pub, NAME_KEY_LEN);
+  StrHelper::strncpy(_names[slot].name, name, sizeof(_names[slot].name));
+  _names_dirty = true;
+  _names_save_at = millis() + NAMES_SAVE_DELAY_MS;
+}
+
+void MeshOSFull::loadNames() {
+  if (!_fs || !_fs->exists(MESHOS_NAMES_FILE)) return;
+  File file = _fs->open(MESHOS_NAMES_FILE);
+  if (!file) return;
+
+  _names_count = 0;
+  while (file.available() >= (int) sizeof(NameEntry) && _names_count < NAMES_MAX) {
+    NameEntry& e = _names[_names_count++];
+    file.read((uint8_t*) &e, sizeof(NameEntry));
+    e.name[sizeof(e.name) - 1] = 0;
+  }
+  file.close();
+  Serial.printf("NAMES: %d neighbour names loaded\n", (int) _names_count);
+}
+
+void MeshOSFull::saveNames() {
+  if (!_fs) return;
+#if defined(ESP32) || defined(RP2040_PLATFORM)
+  File file = _fs->open(MESHOS_NAMES_FILE, "w");
+#else
+  _fs->remove(MESHOS_NAMES_FILE);
+  File file = _fs->open(MESHOS_NAMES_FILE, FILE_O_WRITE);
+#endif
+  if (!file) return;
+  file.write((const uint8_t*) _names, sizeof(NameEntry) * _names_count);
+  file.close();
+  _names_dirty = false;
+  Serial.printf("NAMES: %d neighbour names saved\n", (int) _names_count);
+}
+
+// ===========================================================================
+// Airtime windows
+// ===========================================================================
+
+static const unsigned long MINUTE_MS = 60000UL;
+
+void MeshOSFull::sampleAirtime() {
+  unsigned long now = millis();
+  AirSample totals;
+  totals.tx = getTotalAirTime();
+  totals.rx = getReceiveAirTime();
+  totals.sent = getNumSentFlood() + getNumSentDirect();
+
+  if (_air_next_minute == 0) {   // first call: just record the starting totals
+    _air_last = totals;
+    _air_next_minute = now + MINUTE_MS;
+    return;
+  }
+  if ((long)(now - _air_next_minute) < 0) return;
+
+  _air_next_minute = now + MINUTE_MS;
+  AirSample& bucket = _air_minutes[_air_minute_idx];
+  _air_minute_idx = (_air_minute_idx + 1) % AIR_MINUTES;
+  bucket.tx   = totals.tx   - _air_last.tx;
+  bucket.rx   = totals.rx   - _air_last.rx;
+  bucket.sent = totals.sent - _air_last.sent;
+  _air_last = totals;
+}
+
+uint32_t MeshOSFull::airTx5() const {
+  uint32_t sum = 0;
+  for (const AirSample& s : _air_minutes) sum += s.tx;
+  return sum;
+}
+uint32_t MeshOSFull::airRx5() const {
+  uint32_t sum = 0;
+  for (const AirSample& s : _air_minutes) sum += s.rx;
+  return sum;
+}
+uint32_t MeshOSFull::airSent5() const {
+  uint32_t sum = 0;
+  for (const AirSample& s : _air_minutes) sum += s.sent;
+  return sum;
+}
+
+// The 24 h airtime figures are estimates scaled up from the 5-minute window.
+// NOTE: this multiplies by 288/5 rather than 288 (the number of 5-minute
+// periods in a day), so it reads 5x lower than a straight extrapolation.
+// Packets sent is the total since boot.
+uint32_t MeshOSFull::airTx24() const { return airTx5() * 288 / AIR_MINUTES; }
+uint32_t MeshOSFull::airRx24() const { return airRx5() * 288 / AIR_MINUTES; }
+uint32_t MeshOSFull::airSent24() const { return getNumSentFlood() + getNumSentDirect(); }
 
 void MeshOSFull::meshosTick() {
   sampleAirtime();

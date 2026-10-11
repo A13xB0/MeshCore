@@ -9,8 +9,8 @@
 // UI, served by WebInterface) *and* joins the operator's WiFi as a station, so
 // the observer, self-update and NTP can reach the internet. This module brings
 // the station link up from the saved wifi_ssid / wifi_pwd and keeps the RTC in
-// step with NTP (pool.ntp.org, time.google.com), matching the recovered log line
-// "NET: clock set from NTP (%lu, was %lu)". Clock is only ever moved forward.
+// step with NTP (pool.ntp.org, time.google.com). The clock is only ever moved
+// forward.
 // ---------------------------------------------------------------------------
 
 #ifdef ESP32
