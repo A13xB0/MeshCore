@@ -164,6 +164,7 @@ uint32_t RadioLibWrapper::getEstAirtimeFor(int len_bytes) {
 }
 
 bool RadioLibWrapper::startSendRaw(const uint8_t* bytes, int len) {
+  _radio->standby(RADIOLIB_STANDBY_WARM);
   _board->onBeforeTransmit();
   int err = _radio->startTransmit((uint8_t *) bytes, len);
   if (err == RADIOLIB_ERR_NONE) {
