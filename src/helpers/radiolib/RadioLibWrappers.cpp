@@ -88,8 +88,9 @@ void RadioLibWrapper::resetAGC() {
 }
 
 void RadioLibWrapper::loop() {
+  bool receiving = state == STATE_RX && isReceivingPacket();
   if (state == STATE_RX && _num_floor_samples < NUM_NOISE_FLOOR_SAMPLES) {
-    if (!isReceivingPacket()) {
+    if (!receiving) {
       int rssi = getCurrentRSSI();
       if (rssi < _noise_floor + SAMPLING_THRESHOLD) {  // only consider samples below current floor + sampling THRESHOLD
         _num_floor_samples++;
