@@ -81,7 +81,7 @@ class CustomLR2021 : public LR2021 {
       bool header   = irq & RADIOLIB_LR2021_IRQ_LORA_HEADER_VALID;  // bit 6
       bool hdrErr   = irq & RADIOLIB_LR2021_IRQ_LORA_HDR_CRC_ERROR; // bit 9
       uint32_t now  = millis();
-      if (hdrErr) {
+      if (hdrErr && !header) {
         clearIrqFlags(RADIOLIB_LR2021_IRQ_PREAMBLE_DETECTED | RADIOLIB_LR2021_IRQ_LORA_HEADER_VALID | RADIOLIB_LR2021_IRQ_LORA_HDR_CRC_ERROR);
         _activityAt = 0;
         _headerSeen = false;

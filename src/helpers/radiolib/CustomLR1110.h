@@ -56,7 +56,7 @@ class CustomLR1110 : public LR1110 {
       bool header   = irq & RADIOLIB_LR11X0_IRQ_SYNC_WORD_HEADER_VALID; // bit 5
       bool hdrErr   = irq & RADIOLIB_LR11X0_IRQ_HEADER_ERR;             // bit 6
       uint32_t now  = millis();
-      if (hdrErr) {
+      if (hdrErr && !header) {
         clearIrqState(RADIOLIB_LR11X0_IRQ_PREAMBLE_DETECTED | RADIOLIB_LR11X0_IRQ_SYNC_WORD_HEADER_VALID | RADIOLIB_LR11X0_IRQ_HEADER_ERR);
         _activityAt = 0;
         _headerSeen = false;

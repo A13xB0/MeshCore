@@ -91,7 +91,7 @@ class CustomSX1268 : public SX1268 {
       bool header   = irq & RADIOLIB_SX126X_IRQ_HEADER_VALID;      // bit 4
       bool hdrErr   = irq & RADIOLIB_SX126X_IRQ_HEADER_ERR;        // bit 5
       uint32_t now  = millis();
-      if (hdrErr) {
+      if (hdrErr && !header) {
         clearIrqFlags(RADIOLIB_SX126X_IRQ_PREAMBLE_DETECTED | RADIOLIB_SX126X_IRQ_HEADER_VALID | RADIOLIB_SX126X_IRQ_HEADER_ERR | RADIOLIB_SX126X_IRQ_SYNC_WORD_VALID);
         _activityAt = 0;
         _headerSeen = false;
