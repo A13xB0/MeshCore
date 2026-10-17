@@ -10,6 +10,7 @@
 
 #define NUM_NOISE_FLOOR_SAMPLES  64
 #define SAMPLING_THRESHOLD  14
+#define RECV_FLAG_POLL_MILLIS  100
 
 static volatile uint8_t state = STATE_IDLE;
 
@@ -37,6 +38,7 @@ void RadioLibWrapper::begin() {
   _noise_floor = 0;
   _threshold = 0;
   _cad_enabled = false;
+  _next_flag_poll = 0;
 
   // start average out some samples
   _num_floor_samples = 0;
@@ -88,8 +90,13 @@ void RadioLibWrapper::resetAGC() {
 }
 
 void RadioLibWrapper::loop() {
-  bool receiving = state == STATE_RX && isReceivingPacket();
-  if (state == STATE_RX && _num_floor_samples < NUM_NOISE_FLOOR_SAMPLES) {
+  bool sampling = _num_floor_samples < NUM_NOISE_FLOOR_SAMPLES;
+  bool receiving = false;
+  if (state == STATE_RX && (sampling || (int32_t)(millis() - _next_flag_poll) >= 0)) {
+    receiving = isReceivingPacket();
+    _next_flag_poll = millis() + RECV_FLAG_POLL_MILLIS;
+  }
+  if (state == STATE_RX && sampling) {
     if (!receiving) {
       int rssi = getCurrentRSSI();
       if (rssi < _noise_floor + SAMPLING_THRESHOLD) {  // only consider samples below current floor + sampling THRESHOLD

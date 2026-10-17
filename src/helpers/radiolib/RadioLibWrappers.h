@@ -21,6 +21,7 @@ protected:
   uint16_t _num_floor_samples;
   int32_t _floor_sample_sum;
   uint8_t _preamble_sf;
+  uint32_t _next_flag_poll;
 
   void idle();
   void startRecv();
