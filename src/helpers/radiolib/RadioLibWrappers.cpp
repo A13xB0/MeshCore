@@ -132,6 +132,9 @@ int RadioLibWrapper::recvRaw(uint8_t* bytes, int sz) {
     if (len > 0) {
       if (len > sz) { len = sz; }
       int err = _radio->readData(bytes, len);
+      if (err == RADIOLIB_ERR_NONE && _radio->getPacketLength() != (size_t)len) {
+        err = RADIOLIB_ERR_PACKET_TOO_SHORT;  // next packet arrived while reading, bytes may be mixed
+      }
       if (err != RADIOLIB_ERR_NONE) {
         MESH_DEBUG_PRINTLN("RadioLibWrapper: error: readData(%d)", err);
         len = 0;
