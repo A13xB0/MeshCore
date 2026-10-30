@@ -102,7 +102,9 @@ class CustomSX1262 : public SX1262 {
 
     int16_t startReceive() override {
       // include the PREAMBLE_DETECTED irq bit in reported flags
-      return SX1262::startReceive(RADIOLIB_SX126X_RX_TIMEOUT_INF, RADIOLIB_IRQ_RX_DEFAULT_FLAGS | (1UL << RADIOLIB_IRQ_PREAMBLE_DETECTED), RADIOLIB_IRQ_RX_DEFAULT_MASK, 0);
+      // single-shot: the chip stops at RxDone, so the next packet cannot land in the buffer
+      // before this one is read; a header error raises DIO1 too, so receive is always re-armed
+      return SX1262::startReceive(RADIOLIB_SX126X_RX_TIMEOUT_NONE, RADIOLIB_IRQ_RX_DEFAULT_FLAGS | (1UL << RADIOLIB_IRQ_PREAMBLE_DETECTED), RADIOLIB_IRQ_RX_DEFAULT_MASK | (1UL << RADIOLIB_IRQ_HEADER_ERR), 0);
     }
 
     bool isReceiving() {
