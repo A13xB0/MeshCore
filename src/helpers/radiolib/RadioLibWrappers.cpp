@@ -1,6 +1,7 @@
 
 #define RADIOLIB_STATIC_ONLY 1
 #include "RadioLibWrappers.h"
+#include "SX126xRxRing.h"
 
 #define STATE_IDLE       0
 #define STATE_RX         1
@@ -12,6 +13,9 @@
 #define SAMPLING_THRESHOLD  14
 
 static volatile uint8_t state = STATE_IDLE;
+static volatile uint8_t irq_count = 0;
+static volatile uint32_t irq_at = 0;
+static uint8_t irq_seen = 0;
 
 // this function is called when a complete packet
 // is transmitted by the module
@@ -22,6 +26,8 @@ static
 void setFlag(void) {
   // we sent a packet, set the flag
   state |= STATE_INT_READY;
+  irq_at = micros();
+  irq_count++;
 }
 
 void RadioLibWrapper::begin() {
@@ -74,6 +80,7 @@ void RadioLibWrapper::doResetAGC() {
 void RadioLibWrapper::resetAGC() {
   // make sure we're not mid-receive of packet!
   if ((state & STATE_INT_READY) != 0 || isReceivingPacket()) return;
+  if (rxRing() && rxRing()->hasUnread()) return;
 
   doResetAGC();
   state = STATE_IDLE;   // trigger a startReceive()
@@ -116,6 +123,7 @@ void RadioLibWrapper::startRecv() {
   int err = _radio->startReceive();
   if (err == RADIOLIB_ERR_NONE) {
     state = STATE_RX;
+    onRecvStarted();
   } else {
     MESH_DEBUG_PRINTLN("RadioLibWrapper: error: startReceive(%d)", err);
   }
@@ -125,7 +133,33 @@ bool RadioLibWrapper::isInRecvMode() const {
   return (state & ~STATE_INT_READY) == STATE_RX;
 }
 
+void RadioLibWrapper::onRecvStarted() {
+  irq_seen = irq_count;
+  if (rxRing()) rxRing()->reset();
+}
+
+int RadioLibWrapper::recvRing(SX126xRxRing* ring, uint8_t* bytes, int sz) {
+  bool irq = irq_seen != irq_count;
+  if (irq) {
+    irq_seen = irq_count;
+    state = STATE_RX;   // a packet landing from here on raises it again
+  } else if (!ring->due()) {
+    return 0;
+  }
+  int len = ring->read(bytes, sz, irq, irq_at);
+  if (len < 0) {
+    MESH_DEBUG_PRINTLN("RadioLibWrapper: rx ring dropped a packet");
+    n_recv_errors++;
+    return 0;
+  }
+  if (len > 0) n_recv++;
+  return len;
+}
+
 int RadioLibWrapper::recvRaw(uint8_t* bytes, int sz) {
+  SX126xRxRing* ring = rxRing();
+  if (ring && isInRecvMode()) return recvRing(ring, bytes, sz);
+
   int len = 0;
   if (state & STATE_INT_READY) {
     len = _radio->getPacketLength();
@@ -155,6 +189,7 @@ int RadioLibWrapper::recvRaw(uint8_t* bytes, int sz) {
     int err = _radio->startReceive();
     if (err == RADIOLIB_ERR_NONE) {
       state = STATE_RX;
+      onRecvStarted();
     } else {
       MESH_DEBUG_PRINTLN("RadioLibWrapper: error: startReceive(%d)", err);
     }

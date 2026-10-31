@@ -3,6 +3,8 @@
 #include <Mesh.h>
 #include <RadioLib.h>
 
+class SX126xRxRing;
+
 #ifdef USE_CC310_HW_CRYPTO
 #include <Adafruit_nRFCrypto.h>
 #endif
@@ -27,7 +29,10 @@ protected:
   float packetScoreInt(float snr, int sf, int packet_len);
   virtual bool isReceivingPacket() =0;
   virtual bool lastRxHadCRC() { return true; }
+  virtual SX126xRxRing* rxRing() { return NULL; }   // set: receive stays continuous
   virtual void doResetAGC();
+  void onRecvStarted();
+  int recvRing(SX126xRxRing* ring, uint8_t* bytes, int sz);
 
 public:
   RadioLibWrapper(PhysicalLayer& radio, mesh::MainBoard& board) : _radio(&radio), _board(&board), _preamble_sf(0) { n_recv = n_sent = 0; }

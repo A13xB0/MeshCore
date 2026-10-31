@@ -2,12 +2,16 @@
 
 #include "CustomSTM32WLx.h"
 #include "RadioLibWrappers.h"
+#include "SX126xRxRing.h"
 #include "SX126xReset.h"
 #include <math.h>
 
 class CustomSTM32WLxWrapper : public RadioLibWrapper {
+  SX126xRxRing _ring;
 public:
-  CustomSTM32WLxWrapper(CustomSTM32WLx& radio, mesh::MainBoard& board) : RadioLibWrapper(radio, board) { }
+  CustomSTM32WLxWrapper(CustomSTM32WLx& radio, mesh::MainBoard& board) : RadioLibWrapper(radio, board), _ring(radio) { }
+
+  SX126xRxRing* rxRing() override { return &_ring; }
 
   void setParams(float freq, float bw, uint8_t sf, uint8_t cr) override {
     ((CustomSTM32WLx *)_radio)->setFrequency(freq);

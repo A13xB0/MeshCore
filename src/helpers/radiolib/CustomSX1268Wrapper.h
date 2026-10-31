@@ -2,6 +2,7 @@
 
 #include "CustomSX1268.h"
 #include "RadioLibWrappers.h"
+#include "SX126xRxRing.h"
 #include "SX126xReset.h"
 
 #ifndef USE_SX1268
@@ -9,8 +10,11 @@
 #endif
 
 class CustomSX1268Wrapper : public RadioLibWrapper {
+  SX126xRxRing _ring;
 public:
-  CustomSX1268Wrapper(CustomSX1268& radio, mesh::MainBoard& board) : RadioLibWrapper(radio, board) { }
+  CustomSX1268Wrapper(CustomSX1268& radio, mesh::MainBoard& board) : RadioLibWrapper(radio, board), _ring(radio) { }
+
+  SX126xRxRing* rxRing() override { return &_ring; }
 
   void setParams(float freq, float bw, uint8_t sf, uint8_t cr) override {
     ((CustomSX1268 *)_radio)->setFrequency(freq);
