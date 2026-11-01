@@ -2,11 +2,15 @@
 
 #include "CustomLLCC68.h"
 #include "RadioLibWrappers.h"
+#include "SX126xRxRing.h"
 #include "SX126xReset.h"
 
 class CustomLLCC68Wrapper : public RadioLibWrapper {
+  SX126xRxRing _ring;
 public:
-  CustomLLCC68Wrapper(CustomLLCC68& radio, mesh::MainBoard& board) : RadioLibWrapper(radio, board) { }
+  CustomLLCC68Wrapper(CustomLLCC68& radio, mesh::MainBoard& board) : RadioLibWrapper(radio, board), _ring(radio) { }
+
+  SX126xRxRing* rxRing() override { return &_ring; }
 
   void setParams(float freq, float bw, uint8_t sf, uint8_t cr) override {
     ((CustomLLCC68 *)_radio)->setFrequency(freq);
