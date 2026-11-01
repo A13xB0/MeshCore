@@ -118,7 +118,9 @@ public:
       _radio->clearIrqStatus(flags);
       uint16_t recv, crc;
       if (readStats(recv, crc)) {
-        uint16_t done = recv - _recvBase, bad = crc - _crcBase;
+        // a packet with a bad CRC may or may not be in the received count: counting
+        // it twice only drops packets, missing it misreads them
+        uint16_t bad = crc - _crcBase, done = (uint16_t)(recv - _recvBase) + bad;
         _recvBase = recv;
         _crcBase = crc;
         if (done > 0 && bad == 0 && (flags & RADIOLIB_SX126X_IRQ_CRC_ERR)) bad = 1;
