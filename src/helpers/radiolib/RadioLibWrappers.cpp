@@ -128,7 +128,8 @@ bool RadioLibWrapper::isInRecvMode() const {
 int RadioLibWrapper::recvRaw(uint8_t* bytes, int sz) {
   int len = 0;
   if (state & STATE_INT_READY) {
-    len = _radio->getPacketLength();
+    // a header error interrupts too, with nothing received: just re-arm
+    len = _radio->checkIrq(RADIOLIB_IRQ_RX_DONE) == 0 ? 0 : _radio->getPacketLength();
     if (len > 0) {
       if (len > sz) { len = sz; }
       int err = _radio->readData(bytes, len);
